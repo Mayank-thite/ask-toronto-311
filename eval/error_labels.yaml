@@ -1,0 +1,25 @@
+# Hand labels for every question the 7B agent (7b-D-full) got wrong.
+# One primary cause per miss. Read the predicted SQL in results/7b-D-full.jsonl to check.
+concept_mapping:        # a phrase mapped to the wrong column or value
+  s15: searched request_type for 'missed collection' instead of topic = 'Missed collection'
+  m07: used topic 'Bins' plus a 'green bin' keyword; misses belong to 'Missed collection'
+  m09: searched for the exact phrase 'bin lid'; the city writes 'Bin Lid Damaged' and 'Repair or Replace Lid'
+  x15: searched request_type for 'missed collection' instead of the topic
+copied_example_filter:  # carried a filter over from a retrieved example
+  r17: added a 2025 filter the question never asked for
+  m12: added a 2025 filter (and searched an exact phrase)
+  x07: added a 2025 filter copied from the example it was adapting
+wrapping_range:         # a time range that wraps past midnight or the year end
+  t05: '"11 pm to 5 am" written as BETWEEN 23 AND 5, which matches nothing'
+  m10: '"December to February" written as BETWEEN 12 AND 2 OR year = 2025'
+aggregation_logic:      # right plan, wrong arithmetic
+  x03: filtered to Noise in WHERE, so every ward's share became 100%
+  x06: averaged requests per day per ward instead of averaging across wards
+  x11: computed previous minus current, so every change has the wrong sign
+decomposition:          # needed two steps and built the wrong first step
+  x02: ranked topics by total volume instead of by year-over-year change
+  x12: counted wards in the top 5 instead of summing their requests
+output_shape:           # answered a "how many" question with a list
+  x10: listed the request types instead of counting them
+  x14: returned one row per day instead of the number of days
+  x20: returned one count per ward instead of the number of wards

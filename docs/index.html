@@ -4,72 +4,227 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ask Toronto 311</title>
-<meta name="description" content="A text-to-SQL agent that answers plain-English questions about 937,312 Toronto 311 requests, tested on 100 questions with checked answers.">
+<meta name="description" content="Technical report: a text-to-SQL agent over 937,312 Toronto 311 requests, run on local open-source models and evaluated on 100 hand-checked questions.">
 <style>
-:root { --bg:#fbfbfa; --card:#ffffff; --ink:#1f2933; --muted:#616e7c; --line:#e4e7eb; --accent:#2563eb; --ok:#15803d; --bad:#b91c1c; --code:#f3f4f6; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1115; --card:#171a21; --ink:#e5e7eb; --muted:#9aa5b1; --line:#2a2f3a; --accent:#7aa5f5; --ok:#4ade80; --bad:#f87171; --code:#1f232c; } }
-:root[data-theme="dark"] { --bg:#0f1115; --card:#171a21; --ink:#e5e7eb; --muted:#9aa5b1; --line:#2a2f3a; --accent:#7aa5f5; --ok:#4ade80; --bad:#f87171; --code:#1f232c; }
+:root { --bg:#fbfbfa; --card:#ffffff; --ink:#1f2933; --muted:#616e7c; --line:#e4e7eb; --accent:#2563eb; --accent-soft:#dbe7fe; --ok:#15803d; --bad:#b91c1c; --code:#f3f4f6;
+        --s1:#94a3b8; --s2:#64748b; --s3:#2563eb; --s4:#7aa5f5; --s5:#1e3a8a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1115; --card:#171a21; --ink:#e5e7eb; --muted:#9aa5b1; --line:#2a2f3a; --accent:#7aa5f5; --accent-soft:#1e2a44; --ok:#4ade80; --bad:#f87171; --code:#1f232c; } }
+:root[data-theme="dark"] { --bg:#0f1115; --card:#171a21; --ink:#e5e7eb; --muted:#9aa5b1; --line:#2a2f3a; --accent:#7aa5f5; --accent-soft:#1e2a44; --ok:#4ade80; --bad:#f87171; --code:#1f232c; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
-main { max-width:860px; margin:0 auto; padding:48px 16px 80px; }
-h1 { font-size:2.2rem; margin:0 0 8px; letter-spacing:-0.02em; }
-h2 { font-size:1.35rem; margin:56px 0 12px; }
-h3 { font-size:1rem; margin:0 0 8px; }
-p { margin:0 0 14px; }
-.lede { font-size:1.1rem; color:var(--muted); max-width:680px; }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:28px 0; }
-.stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
-.stat b { display:block; font-size:1.8rem; line-height:1.1; }
-.stat span { color:var(--muted); font-size:.9rem; }
-ol.steps { padding-left:20px; } ol.steps li { margin-bottom:8px; }
-img { max-width:100%; height:auto; border-radius:8px; background:#fff; margin:12px 0; }
+main { max-width:900px; margin:0 auto; padding:48px 16px 80px; }
+h1 { font-size:2.2rem; margin:0 0 6px; letter-spacing:-0.02em; }
+h2 { font-size:1.35rem; margin:56px 0 12px; padding-top:8px; border-top:1px solid var(--line); }
+h3 { font-size:1.02rem; margin:24px 0 8px; }
+p, ul, ol { margin:0 0 14px; }
+li { margin-bottom:6px; }
+.kicker { color:var(--muted); font-size:.85rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:10px; }
+.lede { font-size:1.08rem; color:var(--muted); max-width:720px; }
+.toc { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:.9rem; margin:18px 0 0; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:26px 0; }
+.stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+.stat b { display:block; font-size:1.6rem; line-height:1.15; }
+.stat span { color:var(--muted); font-size:.86rem; }
+figure { margin:16px 0; }
+figcaption { color:var(--muted); font-size:.85rem; margin-top:6px; }
+img { max-width:100%; height:auto; border-radius:8px; background:#fff; }
+svg.diagram { width:100%; height:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+svg.diagram .box { fill:var(--card); stroke:var(--line); stroke-width:1.5; }
+svg.diagram .box.hl { fill:var(--accent-soft); stroke:var(--accent); }
+svg.diagram .t { fill:var(--ink); font:600 12px system-ui,sans-serif; }
+svg.diagram .s { fill:var(--muted); font:11px system-ui,sans-serif; }
+svg.diagram .lane { fill:var(--muted); font:600 10px system-ui,sans-serif; letter-spacing:.08em; }
+svg.diagram .arrow { stroke:var(--muted); stroke-width:1.5; fill:none; marker-end:url(#ah); }
+svg.diagram .loop { stroke:var(--bad); stroke-width:1.5; fill:none; stroke-dasharray:5 4; marker-end:url(#ahr); }
+svg.diagram .lt { fill:var(--bad); font:11px system-ui,sans-serif; }
 .scroll { overflow-x:auto; }
-table { border-collapse:collapse; width:100%; font-size:.9rem; margin:8px 0; }
-th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
-th { color:var(--muted); font-weight:600; }
-pre { background:var(--code); padding:12px; border-radius:8px; overflow-x:auto; font-size:.82rem; white-space:pre-wrap; }
+table { border-collapse:collapse; width:100%; font-size:.88rem; margin:8px 0; }
+th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; white-space:nowrap; }
+td { white-space:nowrap; } .wraptable td { white-space:normal; }
+pre { background:var(--code); padding:12px 14px; border-radius:8px; overflow-x:auto; font-size:.8rem; line-height:1.5; }
+code { font-size:.86em; background:var(--code); padding:1px 4px; border-radius:4px; }
+pre code { background:none; padding:0; }
+details { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin:12px 0; }
+summary { cursor:pointer; font-weight:600; font-size:.92rem; }
+.bar { display:flex; height:28px; border-radius:6px; overflow:hidden; margin:10px 0 6px; font-size:.75rem; color:#fff; }
+.bar div { display:flex; align-items:center; justify-content:center; white-space:nowrap; overflow:hidden; }
+.legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:.82rem; color:var(--muted); }
+.legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+.callout { background:var(--accent-soft); border-radius:10px; padding:12px 16px; margin:14px 0; }
 .demo { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin:16px 0; overflow-x:auto; }
+.demo h3 { margin-top:0; }
 .verdict { font-size:.9rem; margin:8px 0 0; } .ok { color:var(--ok); } .bad { color:var(--bad); }
-.muted { color:var(--muted); font-size:.9rem; }
+.muted { color:var(--muted); font-size:.86rem; }
 a { color:var(--accent); }
 footer { margin-top:64px; color:var(--muted); font-size:.85rem; }
 </style>
 </head>
 <body>
 <main>
+<div class="kicker">Technical report · LLM agents · text-to-SQL · evaluation</div>
 <h1>Ask Toronto 311</h1>
-<p class="lede">Type a question in plain English about 937,312 requests Toronto residents made to 311 in 2024 and 2025. A small open-source model writes the SQL, a guard checks it, PostgreSQL runs it with read-only access, and you get a table and a chart back. No paid API: it runs on a laptop CPU.</p>
+<p class="lede">A text-to-SQL agent that answers plain-English questions about 937,312 Toronto 311 service requests (2024 to 2025). It runs on small open-weight models on a CPU, never gets write access to the database, and is measured on 100 questions with hand-checked answers.</p>
+<nav class="toc"><a href="#arch">Architecture</a><a href="#llm">How the model is used</a><a href="#eval">Evaluation method</a><a href="#results">Results</a><a href="#errors">Error analysis</a><a href="#design">Design decisions</a><a href="#limits">Limitations</a><a href="#demos">Sample runs</a></nav>
 
 <div class="stats">
-  <div class="stat"><b>83%</b><span>of 100 test questions answered correctly (7B model)</span></div>
-  <div class="stat"><b>36% → 73%</b><span>same 3B model, once it gets data notes and similar examples</span></div>
-  <div class="stat"><b>$0</b><span>to run. Local models through llama.cpp or Ollama</span></div>
+  <div class="stat"><b>83 / 100</b><span>execution accuracy, Qwen2.5-Coder 7B (95% CI 74 to 89)</span></div>
+  <div class="stat"><b>36 → 73</b><span>3B model, tables only vs. data notes plus retrieved examples (p &lt; 0.001)</span></div>
+  <div class="stat"><b>0</b><span>questions rescued by self-correction. The misses are silent, not errors</span></div>
+  <div class="stat"><b>12.3 s · $0</b><span>median answer time on a 4-core CPU, with no API cost</span></div>
 </div>
 
-<h2>How it works</h2>
-<ol class="steps">
-  <li><b>Load.</b> The city's yearly CSV files go into PostgreSQL. 810 raw request types are grouped into 15 plain topics, because the city renamed many types between 2024 and 2025.</li>
-  <li><b>Describe.</b> The model gets the tables plus short data notes: real column values, what "open" means, which division forestry moved to, what winter means.</li>
-  <li><b>Retrieve.</b> The three solved examples closest to the new question are pulled from a small bank with BM25 search (none of them are test questions).</li>
-  <li><b>Write and check.</b> The model writes one query. sqlglot parses it, allows a single SELECT on known tables, and caps the rows.</li>
-  <li><b>Run safely.</b> The query runs as a database role that can only read, with a 15 second timeout. A DELETE fails at the database even if it slips past the parser.</li>
-  <li><b>Fix and answer.</b> If the query errors or comes back empty, the error goes back to the model for up to two more tries. A chart is picked from the shape of the result.</li>
+<h2 id="arch">1. Architecture</h2>
+<p>Two paths. An offline loader turns the city's CSV files into a typed PostgreSQL schema with a semantic layer. An online agent turns a question into one guarded, read-only SQL query.</p>
+<figure>
+<svg class="diagram" viewBox="0 0 860 380" role="img" aria-label="Architecture: offline loader into PostgreSQL; online path from question through retriever, prompt builder, LLM, guard and executor to the result, with a retry loop back to the LLM">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#7b8794"/></marker>
+    <marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/></marker>
+  </defs>
+  <text class="lane" x="20" y="28">OFFLINE · ONCE</text>
+  <rect class="box" x="20" y="40" width="180" height="62" rx="8"/><text class="t" x="32" y="64">Toronto Open Data</text><text class="s" x="32" y="82">2 yearly CSVs, 13 MB zipped</text>
+  <rect class="box" x="250" y="40" width="250" height="62" rx="8"/><text class="t" x="262" y="64">Loader (load.py, topics.py)</text><text class="s" x="262" y="82">repair split rows, cp1252, 810 types → 15 topics</text>
+  <rect class="box hl" x="550" y="40" width="290" height="62" rx="8"/><text class="t" x="562" y="64">PostgreSQL 16</text><text class="s" x="562" y="82">937k rows · 3 tables + 1 view</text>
+  <path class="arrow" d="M200,71 H246"/><path class="arrow" d="M500,71 H546"/>
+
+  <text class="lane" x="20" y="146">ONLINE · PER QUESTION</text>
+  <rect class="box" x="20" y="158" width="150" height="62" rx="8"/><text class="t" x="32" y="182">Question</text><text class="s" x="32" y="200">plain English</text>
+  <rect class="box" x="205" y="158" width="170" height="62" rx="8"/><text class="t" x="217" y="182">Retriever</text><text class="s" x="217" y="200">BM25, top 3 of 24 examples</text>
+  <rect class="box" x="410" y="158" width="190" height="62" rx="8"/><text class="t" x="422" y="182">Prompt builder</text><text class="s" x="422" y="200">schema + notes + examples</text>
+  <rect class="box hl" x="635" y="158" width="205" height="62" rx="8"/><text class="t" x="647" y="182">LLM (Qwen2.5-Coder)</text><text class="s" x="647" y="200">llama.cpp / Ollama, temp 0</text>
+  <path class="arrow" d="M170,189 H201"/><path class="arrow" d="M375,189 H406"/><path class="arrow" d="M600,189 H631"/>
+
+  <rect class="box" x="635" y="270" width="205" height="62" rx="8"/><text class="t" x="647" y="294">Guard (sqlglot)</text><text class="s" x="647" y="312">SELECT only, row cap</text>
+  <rect class="box" x="380" y="270" width="215" height="62" rx="8"/><text class="t" x="392" y="294">Executor (role agent_ro)</text><text class="s" x="392" y="312">read-only txn, 15 s timeout</text>
+  <rect class="box" x="140" y="270" width="200" height="62" rx="8"/><text class="t" x="152" y="294">Result</text><text class="s" x="152" y="312">rows + rule-picked chart</text>
+  <path class="arrow" d="M737,220 V266"/><path class="arrow" d="M635,301 H599"/><path class="arrow" d="M380,301 H344"/>
+  <path class="arrow" d="M505,102 C 505,130 505,140 505,154"/>
+  <text class="s" x="512" y="134">values read at start-up</text>
+  <path class="loop" d="M487,332 C 487,368 850,368 850,250 C 850,232 846,226 842,222"/>
+  <text class="lt" x="20" y="362">parse error, DB error or empty result → error text back to the model (max 2 retries)</text>
+</svg>
+<figcaption>Components and data flow. Highlighted boxes are the stateful pieces: the database and the model server.</figcaption>
+</figure>
+
+<h3>The agent loop</h3>
+<pre><code>examples = bm25.search(question, k=3)                    # retrieval, no test questions in the bank
+messages = [system, schema + notes + examples + question]
+for attempt in range(1 + max_retries):                     # max_retries = 2
+    sql = extract_sql(llm.chat(messages, temperature=0))
+    try:
+        safe = guard.check(sql)                            # parse, allowlist, row cap
+        rows = db.run(safe, role="agent_ro")               # SELECT grants only, read-only, 15 s
+        if rows or already_retried_empty: return rows
+        feedback = "returned no rows; check filter values against the notes"
+    except UnsafeSQL | DatabaseError as e:
+        feedback = str(e)                                  # the model sees the real error
+    messages += [assistant(sql), user(feedback + " Reply with the corrected SQL only.")]</code></pre>
+<p>The table is the answer. The model never writes the prose summary, so it can't describe numbers it didn't compute. The chart type (number, line or bar) is chosen by rules from the result's shape.</p>
+
+<h2 id="llm">2. How the model is used</h2>
+<div class="scroll"><table class="wraptable">
+<tr><th>Setting</th><th>Value</th><th>Why</th></tr>
+<tr><td>Models</td><td>Qwen2.5-Coder Instruct 1.5B, 3B, 7B</td><td>Code-tuned, open weights, small enough for CPU</td></tr>
+<tr><td>Weights</td><td>GGUF, Q4_K_M (4-bit)</td><td>7B fits in about 5 GB of RAM</td></tr>
+<tr><td>Serving</td><td>llama.cpp server (Ollama works too)</td><td>OpenAI-compatible <code>/chat/completions</code>, so the client is provider-agnostic</td></tr>
+<tr><td>Decoding</td><td>temperature 0, max 400 tokens, context 8,192</td><td>Greedy output makes every run reproducible and every comparison paired</td></tr>
+<tr><td>Output contract</td><td>one query in a <code>```sql</code> block</td><td>Parsed by regex, then by sqlglot. Anything else is rejected with a reason</td></tr>
+<tr><td>Calls per question</td><td>1.03 on average (7B)</td><td>Retries only fire on loud failures</td></tr>
+</table></div>
+
+<h3>Prompt anatomy</h3>
+<p>Token counts for one real question with the 7B tokenizer. The data notes are the biggest block and the most valuable one.</p>
+<div class="bar" role="img" aria-label="Prompt tokens: system 32, tables 128, notes 681, examples 248, question 19">
+  <div style="width:2.9%;background:var(--s2)"></div>
+  <div style="width:11.6%;background:var(--s1)">128</div>
+  <div style="width:61.5%;background:var(--s3)">notes 681</div>
+  <div style="width:22.4%;background:var(--s4)">examples 248</div>
+  <div style="width:1.7%;background:var(--s5)"></div>
+</div>
+<div class="legend"><span><i style="background:var(--s2)"></i>system 32</span><span><i style="background:var(--s1)"></i>tables and columns 128</span><span><i style="background:var(--s3)"></i>data notes 681</span><span><i style="background:var(--s4)"></i>3 examples 248</span><span><i style="background:var(--s5)"></i>question 19</span><span>total about 1,100 in, about 50 out</span></div>
+
+<div class="callout"><b>Static first, dynamic last.</b> The system message, schema and notes are identical for every question, so they come first. llama.cpp keeps the KV cache for a matching prefix. Across the 7B run it reused about 870 prompt tokens per question and evaluated only about 190 new ones. That's roughly 80% of prompt processing skipped. On a CPU, prompt processing is the expensive part.</div>
+
+<details><summary>The data notes, as the model sees them (abridged)</summary>
+<pre><code>- Prefer the view v_requests. It already joins ward_name and topic onto every request.
+- Data covers 2024-01-01 to 2025-12-31. "Last year" means 2025.
+- Seasons: winter = December, January, February; spring = March to May; ...
+- topic groups 800+ raw request types into plain themes. Use topic for broad questions.
+  The city renamed many request types between 2024 and 2025, so filtering on one
+  request_type usually misses half the data. Topics: 'Animals and wildlife', 'Bins', ...
+- status values: 'Cancelled', 'Closed', 'Completed', 'In Progress', 'New', 'Unknown'.
+  "Open" or "unresolved" means status IN ('New', 'In Progress').
+- Forestry moved divisions: 'Parks, Forestry &amp; Recreation' in 2024,
+  'Environment, Climate &amp; Forestry' in 2025.
+- ward_id is NULL when the ward is unknown; leave those out of ward rankings.
+- postal_fsa is NULL when the request was logged at an intersection.</code></pre>
+<p class="muted">Value lists (topics, statuses, divisions, date range) are read from the database at start-up, so the notes can't drift from the data.</p>
+</details>
+
+<h2 id="eval">3. Evaluation method</h2>
+<ul>
+  <li><b>Test set.</b> 100 questions across 5 categories of 20: simple filters, time logic, rankings, data traps (renamed types, the forestry move, NULL meanings, "open"), and multi-step queries (ratios, windows, HAVING, set operations). Each has gold SQL. A test checks that every gold query runs and returns rows, and that no LIMIT cuts through a tie.</li>
+  <li><b>Metric.</b> Execution accuracy. The agent's result set is compared with the gold result set, not the SQL text. Column names and extra columns are ignored. Numbers are compared to 2 decimals. Order matters only when the gold query sorts. For "which X" questions, only the label column has to match. Each rule is unit-tested in <code>compare.py</code>.</li>
+  <li><b>Leakage control.</b> The 24 retrievable examples are written separately and share no question with the test set.</li>
+  <li><b>Ablation.</b> Components are added one at a time on the 3B model. Because decoding is greedy, each pair of runs is a paired comparison on the same 100 questions.</li>
+  <li><b>Statistics.</b> 95% Wilson intervals per run. Exact McNemar tests between neighbouring runs, which count only the questions where the two runs disagree.</li>
+  <li><b>One scoring change, applied to everything.</b> After the first runs, the scorer was too strict in two ways. It rejected month numbers in single-year questions, and it rejected label-only answers. The rules were fixed, and every saved run was re-scored from its stored SQL (<code>eval/rescore.py</code>). No model was re-run. The fix raised runs by 2 to 8 points and left the ranking of setups unchanged.</li>
+</ul>
+<p class="muted">Hardware: 4 vCPU, 15 GB RAM, no GPU. llama-cpp-python 0.3.36. All per-question outputs are in <code>eval/results/*.jsonl</code>.</p>
+
+<h2 id="results">4. Results</h2>
+<h3>Ablation (Qwen2.5-Coder 3B)</h3>
+<figure><img src="img/ladder.png" alt="Accuracy for each ablation step with 95% confidence intervals"></figure>
+<div class="scroll"><table><tr><th>Setup</th><th>Correct</th><th>95% CI</th><th>Simple</th><th>Time</th><th>Ranking</th><th>Traps</th><th>Multi</th><th>vs row above (right / wrong)</th></tr><tr><td>Tables only</td><td><b>36</b></td><td>27&ndash;46</td><td>50</td><td>50</td><td>35</td><td>30</td><td>15</td><td>&nbsp;</td></tr><tr><td>+ data notes</td><td><b>55</b></td><td>45&ndash;64</td><td>70</td><td>60</td><td>85</td><td>55</td><td>5</td><td>+24 / &minus;5<br><span class=muted>p &lt; 0.001</span></td></tr><tr><td>+ 3 similar examples</td><td><b>73</b></td><td>64&ndash;81</td><td>95</td><td>80</td><td>85</td><td>65</td><td>40</td><td>+22 / &minus;4<br><span class=muted>p &lt; 0.001</span></td></tr><tr><td>+ self-correction</td><td><b>73</b></td><td>64&ndash;81</td><td>95</td><td>80</td><td>85</td><td>65</td><td>40</td><td>+0 / &minus;0<br><span class=muted>p = 1.00</span></td></tr><tr><td>+ &quot;don&#x27;t copy filters&quot; line</td><td><b>71</b></td><td>62&ndash;79</td><td>95</td><td>75</td><td>85</td><td>60</td><td>40</td><td>+0 / &minus;2<br><span class=muted>p = 0.50</span></td></tr></table></div>
+<ul>
+  <li><b>Data notes</b> (+24 / &minus;5, p &lt; 0.001). The biggest gains were rankings (35 → 85) and traps (30 → 55). Most of the errors removed were lookups against values the model couldn't see.</li>
+  <li><b>Retrieved examples</b> (+22 / &minus;4, p &lt; 0.001). Multi-step went from 5 to 40, because the examples show the patterns (FILTER, window functions, HAVING) the model then adapts.</li>
+  <li><b>Self-correction</b> (0 / 0). With context in place, only 3 of 100 queries failed loudly (2 database errors, 1 empty result). None got fixed in 2 retries. The other 24 misses ran cleanly and returned wrong numbers, which an error-driven loop never sees.</li>
+  <li><b>A "don't copy filters" instruction</b> (0 / &minus;2, p = 0.50). It targeted a real failure mode but didn't help. It's left off by default and kept in the record.</li>
+</ul>
+
+<h3>Model size (full agent)</h3>
+<figure><img src="img/models.png" alt="Accuracy for 1.5B, 3B and 7B models with 95% confidence intervals"></figure>
+<div class="scroll"><table><tr><th>Model</th><th>Correct</th><th>95% CI</th><th>Median</th><th>p90</th><th>vs smaller (right / wrong)</th></tr><tr><td>Qwen2.5-Coder 1.5B</td><td><b>64</b></td><td>54&ndash;73</td><td>5.2s</td><td>8.7s</td><td>&nbsp;</td></tr><tr><td>Qwen2.5-Coder 3B</td><td><b>73</b></td><td>64&ndash;81</td><td>6.9s</td><td>11.8s</td><td>+14 / &minus;5<br><span class=muted>p = 0.06</span></td></tr><tr><td>Qwen2.5-Coder 7B</td><td><b>83</b></td><td>74&ndash;89</td><td>12.3s</td><td>20.1s</td><td>+16 / &minus;6<br><span class=muted>p = 0.05</span></td></tr></table></div>
+<p>Each step up in size helps, but on 100 questions neither step clears p &lt; 0.05 (p = 0.06 and p = 0.05). The context ablation is a much stronger result than the model-size one. Going from 3B to 7B costs about 1.8 times the latency for 10 points.</p>
+<figure><img src="img/categories.png" alt="Accuracy by question category for three setups"><figcaption>3B, by category. Multi-step stays hardest throughout.</figcaption></figure>
+
+<h2 id="errors">5. Error analysis</h2>
+<p>Every one of the 7B model's 17 misses was read and given one primary cause. Labels are in <code>eval/error_labels.yaml</code>.</p>
+<div class="scroll"><table class="wraptable"><tr><th>Cause</th><th>Misses</th><th>Cases</th></tr><tr><td>Concept mapping</td><td><b>4</b></td><td><code>s15</code> searched request_type for &#x27;missed collection&#x27; instead of topic = &#x27;Missed collection&#x27;<br><code>m07</code> used topic &#x27;Bins&#x27; plus a &#x27;green bin&#x27; keyword; misses belong to &#x27;Missed collection&#x27;<br><code>m09</code> searched for the exact phrase &#x27;bin lid&#x27;; the city writes &#x27;Bin Lid Damaged&#x27; and &#x27;Repair or Replace Lid&#x27;<br><code>x15</code> searched request_type for &#x27;missed collection&#x27; instead of the topic</td></tr><tr><td>Copied example filter</td><td><b>3</b></td><td><code>r17</code> added a 2025 filter the question never asked for<br><code>m12</code> added a 2025 filter (and searched an exact phrase)<br><code>x07</code> added a 2025 filter copied from the example it was adapting</td></tr><tr><td>Aggregation logic</td><td><b>3</b></td><td><code>x03</code> filtered to Noise in WHERE, so every ward&#x27;s share became 100%<br><code>x06</code> averaged requests per day per ward instead of averaging across wards<br><code>x11</code> computed previous minus current, so every change has the wrong sign</td></tr><tr><td>Output shape</td><td><b>3</b></td><td><code>x10</code> listed the request types instead of counting them<br><code>x14</code> returned one row per day instead of the number of days<br><code>x20</code> returned one count per ward instead of the number of wards</td></tr><tr><td>Wrapping range</td><td><b>2</b></td><td><code>t05</code> &quot;11 pm to 5 am&quot; written as BETWEEN 23 AND 5, which matches nothing<br><code>m10</code> &quot;December to February&quot; written as BETWEEN 12 AND 2 OR year = 2025</td></tr><tr><td>Decomposition</td><td><b>2</b></td><td><code>x02</code> ranked topics by total volume instead of by year-over-year change<br><code>x12</code> counted wards in the top 5 instead of summing their requests</td></tr></table></div>
+<p>Every class here is silent. The query runs and returns something plausible. Each class points to a cheap, specific fix (see Next steps). A larger model alone hasn't removed any class: the 7B still copies filters and writes <code>BETWEEN 23 AND 5</code>.</p>
+
+<h2 id="design">6. Design decisions</h2>
+<div class="scroll"><table class="wraptable">
+<tr><th>Decision</th><th>Alternative</th><th>Why this one</th></tr>
+<tr><td>Topic layer in the database, built from tested regex rules</td><td>Let the model search 810 raw type names</td><td>The city renamed types mid-period. A deterministic, unit-tested mapping is cheaper and more reliable than hoping the model finds every spelling.</td></tr>
+<tr><td>One joined view (<code>v_requests</code>)</td><td>Expose only base tables</td><td>Fewer joins for the model to get wrong. Base tables stay available for the rare query that needs them.</td></tr>
+<tr><td>BM25 over 24 examples</td><td>Embedding search</td><td>Short questions and a tiny bank. No second model or vector store. Retrieval sits behind one class, so it can be swapped.</td></tr>
+<tr><td>Two safety layers: parser allowlist and DB role</td><td>Prompt instructions only</td><td>Prompts aren't a security boundary. Even a query that slips past the parser can't write, because the role has SELECT grants only and read-only transactions. That's tested.</td></tr>
+<tr><td>Greedy decoding</td><td>Sampling</td><td>Reproducible runs and paired statistics. Sampling is saved for a future voting step.</td></tr>
+<tr><td>Return rows, not model-written prose</td><td>Have the LLM narrate the answer</td><td>Removes a second place to hallucinate and halves the calls.</td></tr>
+<tr><td>Local models behind an OpenAI-compatible client</td><td>A hosted API</td><td>No key, no data leaving the machine, $0 per question. Pointing <code>LLM_BASE_URL</code> at a hosted model is a one-line change.</td></tr>
+</table></div>
+
+<h2 id="limits">7. Limitations</h2>
+<ul>
+  <li><b>Small test set.</b> 100 questions gives intervals of about ±9 points. Differences under about 10 points between setups shouldn't be trusted.</li>
+  <li><b>One author.</b> The same person wrote the questions, the gold SQL, the notes and the examples. The notes probably cover the traps better than they would for questions written by strangers.</li>
+  <li><b>No confidence signal.</b> The agent can't tell a right answer from a silent wrong one, and that's where most of the remaining error is.</li>
+  <li><b>Single-turn.</b> It doesn't ask clarifying questions. For ambiguous phrasing, it picks one reading.</li>
+  <li><b>CPU latency.</b> 12 s median for 7B is fine for analysis and too slow for chat. A GPU or a hosted model would cut it by an order of magnitude.</li>
+</ul>
+<h3>Next steps, ranked by expected gain per hour</h3>
+<ol>
+  <li><b>Result-shape check.</b> If a "how many" question returns more than one row, send it back. Targets all 3 output-shape misses.</li>
+  <li><b>Two more notes.</b> One on time ranges that wrap past midnight or the year end, and one telling the model to prefer topic over keyword search. Targets 6 misses.</li>
+  <li><b>Self-consistency.</b> Sample 5 queries, execute them all, and keep the majority result. This is the standard answer to silent errors, at about 5 times the compute.</li>
+  <li><b>A 300-question test set</b> written partly by someone else, to tighten intervals and test the notes honestly.</li>
 </ol>
 
-<h2>What moved the score</h2>
-<p>Each row adds one piece to the agent and reruns all 100 questions on Qwen2.5-Coder 3B. A question counts as correct only when the query's result matches the answer I checked by hand.</p>
-<img src="img/ladder.png" alt="Bar chart of accuracy as each layer is added">
-<div class="scroll"><table><tr><th>Setup</th><th>All</th><th>Simple</th><th>Time</th><th>Ranking</th><th>Data traps</th><th>Multi-step</th></tr><tr><td>Tables only</td><td><b>36%</b></td><td>50%</td><td>50%</td><td>35%</td><td>30%</td><td>15%</td></tr><tr><td>+ data notes</td><td><b>55%</b></td><td>70%</td><td>60%</td><td>85%</td><td>55%</td><td>5%</td></tr><tr><td>+ 3 similar examples</td><td><b>73%</b></td><td>95%</td><td>80%</td><td>85%</td><td>65%</td><td>40%</td></tr><tr><td>+ self-correction</td><td><b>73%</b></td><td>95%</td><td>80%</td><td>85%</td><td>65%</td><td>40%</td></tr><tr><td>+ &quot;don&#x27;t copy filters&quot; line</td><td><b>71%</b></td><td>95%</td><td>75%</td><td>85%</td><td>60%</td><td>40%</td></tr></table></div>
-<p>The data notes and the examples did almost all the work. Self-correction rescued nothing: once the model had context, only 3 of 100 queries errored at all. The other misses were quiet. The query ran fine and returned the wrong number, which no retry loop can catch. I also tried telling the model not to copy filters from the examples. It scored 71% against 73% without it, which is noise on 100 questions, so it stays off.</p>
-<img src="img/categories.png" alt="Accuracy by question type for three setups">
-
-<h2>Bigger model, same agent</h2>
-<div class="scroll"><table><tr><th>Model</th><th>Accuracy</th><th>Median time</th><th>Slowest 10%</th></tr><tr><td>Qwen2.5-Coder 1.5B</td><td><b>64%</b></td><td>5.2s</td><td>8.7s</td></tr><tr><td>Qwen2.5-Coder 3B</td><td><b>73%</b></td><td>6.9s</td><td>11.8s</td></tr><tr><td>Qwen2.5-Coder 7B</td><td><b>83%</b></td><td>12.3s</td><td>20.1s</td></tr></table></div>
-<img src="img/models.png" alt="Accuracy for three model sizes">
-<p>The 7B model is the best trade: 10 more points than 3B for about twice the wait. Times are on a 4-core CPU with no GPU.</p>
-
-<h2>Real answers from the test run</h2>
-<p class="muted">Straight from the 7B run, including one it got wrong.</p>
+<h2 id="demos">8. Sample runs</h2>
+<p class="muted">Straight from the 7B evaluation run, including one miss.</p>
 <article class=demo><h3>Show the number of pothole and road damage requests by month for both years.</h3>
 <pre>SELECT EXTRACT(YEAR FROM created_at) AS year, CAST(DATE_TRUNC(&#x27;MONTH&#x27;, created_at) AS DATE) AS month, COUNT(*) AS requests FROM v_requests WHERE topic = &#x27;Potholes and road damage&#x27; GROUP BY year, month ORDER BY year, month LIMIT 500</pre><table><tr><th>year</th><th>month</th><th>requests</th></tr><tr><td>2024</td><td>2024-01-01</td><td>1083</td></tr><tr><td>2024</td><td>2024-02-01</td><td>893</td></tr><tr><td>2024</td><td>2024-03-01</td><td>1007</td></tr><tr><td>2024</td><td>2024-04-01</td><td>1907</td></tr><tr><td>2024</td><td>2024-05-01</td><td>1490</td></tr><tr><td>2024</td><td>2024-06-01</td><td>971</td></tr><tr><td>2024</td><td>2024-07-01</td><td>1262</td></tr><tr><td>2024</td><td>2024-08-01</td><td>1058</td></tr></table><p class=muted>16 more rows</p><img src="img/demo-t06.png" alt="Chart of the answer">
 <p class="verdict ok">Correct · 16.2s on a 4-core CPU</p></article>
@@ -86,17 +241,7 @@ footer { margin-top:64px; color:var(--muted); font-size:.85rem; }
 <pre>WITH c AS (SELECT ward_name, topic, COUNT(*) AS requests, RANK() OVER (PARTITION BY ward_name ORDER BY COUNT(*) DESC) AS rnk FROM v_requests WHERE ward_id IS NOT NULL AND EXTRACT(YEAR FROM created_at) = 2025 GROUP BY ward_name, topic) SELECT ward_name, topic, requests FROM c WHERE rnk = 1 ORDER BY ward_name LIMIT 500</pre><table><tr><th>ward_name</th><th>topic</th><th>requests</th></tr><tr><td>Beaches-East York</td><td>Missed collection</td><td>5487</td></tr><tr><td>Davenport</td><td>Bins</td><td>6815</td></tr><tr><td>Don Valley East</td><td>Missed collection</td><td>2186</td></tr><tr><td>Don Valley North</td><td>Bins</td><td>2625</td></tr><tr><td>Don Valley West</td><td>Missed collection</td><td>3705</td></tr><tr><td>Eglinton-Lawrence</td><td>Bins</td><td>4808</td></tr><tr><td>Etobicoke Centre</td><td>Bins</td><td>3324</td></tr><tr><td>Etobicoke North</td><td>Bins</td><td>2967</td></tr></table><p class=muted>17 more rows</p>
 <p class="verdict bad">Wrong: wrong result · 24.8s on a 4-core CPU</p></article>
 
-<h2>Where it still goes wrong</h2>
-<p>The 17 misses from the 7B run fall into four groups:</p>
-<ul>
-  <li><b>Copying from examples.</b> It adds a year filter the question never asked for, because a retrieved example had one.</li>
-  <li><b>Keyword instead of topic.</b> It searches request names for "missed collection" or "bin lid" when the right move is the topic column. Those exact words rarely appear in the city's type names.</li>
-  <li><b>Time ranges that wrap.</b> "Between 11 pm and 5 am" becomes <code>BETWEEN 23 AND 5</code>, which matches nothing.</li>
-  <li><b>Two-step math.</b> Averages of counts and "how many wards had more X than Y" need a subquery, and it often skips one.</li>
-</ul>
-<p>The fix for each one is more context, not a bigger loop: a note about wrapping hours, a few examples of two-step counts, and returning the topic list with each question.</p>
-
-<footer>Data: City of Toronto Open Data, 311 Service Requests (Open Government Licence – Toronto). Built by Mayank Thite. Code, test questions and every result: <a href="https://github.com/Mayank-thite/ask-toronto-311">github.com/Mayank-thite/ask-toronto-311</a>.</footer>
+<footer>Data: City of Toronto Open Data, 311 Service Requests (Open Government Licence – Toronto). Built by Mayank Thite. Code, test set, per-question results and the full report: <a href="https://github.com/Mayank-thite/ask-toronto-311">github.com/Mayank-thite/ask-toronto-311</a>.</footer>
 </main>
 </body>
 </html>
