@@ -67,12 +67,6 @@ footer { margin-top:64px; color:var(--muted); font-size:.85rem; }
 <p class="lede">Ask a question about Toronto's 311 requests in plain English. Get the answer straight from the city's data, along with the SQL that found it. I tested it on 100 questions with free local models and with Claude.</p>
 <nav class="toc"><a href="#problem">Why I built this</a><a href="#data">Data</a><a href="#why">Why model quality matters</a><a href="#arch">Architecture</a><a href="#llm">How the model is used</a><a href="#eval">Evaluation method</a><a href="#results">Results</a><a href="#errors">Error analysis</a><a href="#design">Design decisions</a><a href="#limits">Limitations</a><a href="#demos">Sample runs</a></nav>
 
-<div class="stats">
-  <div class="stat"><b>83 / 100</b><span>Qwen2.5-Coder 7B on a 4-core CPU, $0 per question (95% CI 74 to 89)</span></div>
-  <div class="stat"><b>97 / 100</b><span>Claude Haiku 5.5, 1.0 s median, $0.012 for all 100 questions</span></div>
-  <div class="stat"><b>76 → 98</b><span>Claude Sonnet 5.5, tables only vs. full context (p &lt; 0.001). Context still matters at the frontier</span></div>
-  <div class="stat"><b>All misses</b><span>left on hosted models are data traps: the query runs and the number is wrong</span></div>
-</div>
 
 <h2 id="problem">Why I built this</h2>
 <p>When a pothole opens up on your street or the garbage truck skips your house, you call 311. Toronto publishes every one of those calls as open data. In 2024 and 2025 alone there were 937,312 of them.</p>
