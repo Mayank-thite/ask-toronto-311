@@ -1,0 +1,586 @@
+# 100 test questions with hand-written answers (gold SQL). The agent never sees these.
+# Categories: simple, time, ranking, semantics (dataset traps), multi_step.
+
+# ---------- simple: one filter, one number ----------
+- id: s01
+  category: simple
+  question: How many 311 requests were made in 2025?
+  sql: SELECT COUNT(*) FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025
+- id: s02
+  category: simple
+  question: How many noise requests were there across both years?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Noise'
+- id: s03
+  category: simple
+  question: How many requests were cancelled in 2024?
+  sql: SELECT COUNT(*) FROM v_requests WHERE status = 'Cancelled' AND EXTRACT(YEAR FROM created_at) = 2024
+- id: s04
+  category: simple
+  question: How many requests came from Toronto-Danforth?
+  sql: SELECT COUNT(*) FROM v_requests WHERE ward_name = 'Toronto-Danforth'
+- id: s05
+  category: simple
+  question: How many pothole and road damage requests were made in 2025?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Potholes and road damage' AND EXTRACT(YEAR FROM created_at) = 2025
+- id: s06
+  category: simple
+  question: How many requests did Toronto Water receive?
+  sql: SELECT COUNT(*) FROM v_requests WHERE division = 'Toronto Water'
+- id: s07
+  category: simple
+  question: How many different request types are there?
+  sql: SELECT COUNT(*) FROM request_types
+- id: s08
+  category: simple
+  question: How many requests came from postal area M5V?
+  sql: SELECT COUNT(*) FROM v_requests WHERE postal_fsa = 'M5V'
+- id: s09
+  category: simple
+  question: How many wildlife and animal requests were there in 2024?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Animals and wildlife' AND EXTRACT(YEAR FROM created_at) = 2024
+- id: s10
+  category: simple
+  question: How many requests have an unknown ward?
+  sql: SELECT COUNT(*) FROM service_requests WHERE ward_id IS NULL
+- id: s11
+  category: simple
+  question: How many graffiti requests were made in 2025?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Graffiti and postering' AND EXTRACT(YEAR FROM created_at) = 2025
+- id: s12
+  category: simple
+  question: How many requests mention fireworks?
+  sql: SELECT COUNT(*) FROM v_requests WHERE request_type ILIKE '%fireworks%'
+- id: s13
+  category: simple
+  question: How many hazardous waste requests came from Etobicoke Centre?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Hazardous waste' AND ward_name = 'Etobicoke Centre'
+- id: s14
+  category: simple
+  question: How many requests were handled by the Bylaw Enforcement section?
+  sql: SELECT COUNT(*) FROM v_requests WHERE section = 'Bylaw Enforcement'
+- id: s15
+  category: simple
+  question: How many missed collection requests were made in 2024?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Missed collection' AND EXTRACT(YEAR FROM created_at) = 2024
+- id: s16
+  category: simple
+  question: How many requests have the status Unknown?
+  sql: SELECT COUNT(*) FROM v_requests WHERE status = 'Unknown'
+- id: s17
+  category: simple
+  question: How many wards are in the data?
+  sql: SELECT COUNT(*) FROM wards
+- id: s18
+  category: simple
+  question: How many requests about needles or syringes were made?
+  sql: SELECT COUNT(*) FROM v_requests WHERE request_type ILIKE '%needle%' OR request_type ILIKE '%syringe%'
+- id: s19
+  category: simple
+  question: How many trees requests came from Don Valley West in 2025?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Trees' AND ward_name = 'Don Valley West' AND EXTRACT(YEAR FROM created_at) = 2025
+- id: s20
+  category: simple
+  question: How many requests were made through the 311 division itself?
+  sql: SELECT COUNT(*) FROM v_requests WHERE division = '311'
+
+# ---------- time: months, seasons, weekdays, hours, trends ----------
+- id: t01
+  category: time
+  question: How many requests were made each month in 2024?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE EXTRACT(YEAR FROM created_at) = 2024 GROUP BY 1 ORDER BY 1
+- id: t02
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: time
+  question: Which month of 2025 had the most requests?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t03
+  category: time
+  question: How many snow and ice requests were made in winter 2025 (January, February and December 2025)?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Snow and ice'
+    AND EXTRACT(YEAR FROM created_at) = 2025 AND EXTRACT(MONTH FROM created_at) IN (1, 2, 12)
+- id: t04
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: time
+  question: Which day of the week gets the most requests? Give the weekday number (0 = Sunday).
+  sql: |
+    SELECT EXTRACT(DOW FROM created_at) AS dow, COUNT(*) FROM v_requests
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t05
+  category: time
+  question: How many noise requests were made between 11 pm and 5 am?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Noise'
+    AND (EXTRACT(HOUR FROM created_at) >= 23 OR EXTRACT(HOUR FROM created_at) < 5)
+- id: t06
+  category: time
+  question: Show the number of pothole and road damage requests by month for both years.
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE topic = 'Potholes and road damage' GROUP BY 1 ORDER BY 1
+- id: t07
+  category: time
+  question: How many requests were made on weekends in 2024?
+  sql: |
+    SELECT COUNT(*) FROM v_requests
+    WHERE EXTRACT(DOW FROM created_at) IN (0, 6) AND EXTRACT(YEAR FROM created_at) = 2024
+- id: t08
+  category: time
+  question: How many requests were made on Canada Day 2025 (July 1)?
+  sql: SELECT COUNT(*) FROM v_requests WHERE created_at::date = '2025-07-01'
+- id: t09
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: time
+  question: Which hour of the day has the most requests overall?
+  sql: |
+    SELECT EXTRACT(HOUR FROM created_at) AS hour, COUNT(*) FROM v_requests
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t10
+  category: time
+  question: How many tree requests were made in the summer of 2024 (June to August)?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Trees'
+    AND EXTRACT(YEAR FROM created_at) = 2024 AND EXTRACT(MONTH FROM created_at) BETWEEN 6 AND 8
+- id: t11
+  category: time
+  question: How many requests were made in the first quarter of 2025?
+  sql: SELECT COUNT(*) FROM v_requests WHERE created_at >= '2025-01-01' AND created_at < '2025-04-01'
+- id: t12
+  category: time
+  question: What was the busiest single day for requests overall?
+  sql: |
+    SELECT created_at::date AS day, COUNT(*) FROM v_requests
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t13
+  category: time
+  question: How many requests were made in each year?
+  sql: |
+    SELECT EXTRACT(YEAR FROM created_at) AS year, COUNT(*) FROM v_requests GROUP BY 1 ORDER BY 1
+- id: t14
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: time
+  question: Which month of 2024 had the most animal and wildlife requests?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE topic = 'Animals and wildlife' AND EXTRACT(YEAR FROM created_at) = 2024
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t15
+  category: time
+  question: How many requests were made last December?
+  sql: SELECT COUNT(*) FROM v_requests WHERE created_at >= '2025-12-01' AND created_at < '2026-01-01'
+- id: t16
+  category: time
+  question: How many requests were made per weekday in 2025? Use weekday numbers 0 (Sunday) to 6.
+  sql: |
+    SELECT EXTRACT(DOW FROM created_at) AS dow, COUNT(*) FROM v_requests
+    WHERE EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1 ORDER BY 1
+- id: t17
+  category: time
+  question: How many noise requests were made each month in 2025?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE topic = 'Noise' AND EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1 ORDER BY 1
+- id: t18
+  category: time
+  question: How many requests were opened in the last week of 2025 (December 25 to 31)?
+  sql: SELECT COUNT(*) FROM v_requests WHERE created_at >= '2025-12-25' AND created_at < '2026-01-01'
+- id: t19
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: time
+  question: In which month of 2024 were the most water and sewer requests made?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) FROM v_requests
+    WHERE topic = 'Water and sewer' AND EXTRACT(YEAR FROM created_at) = 2024
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: t20
+  category: time
+  question: How many requests were made before 6 am in 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests
+    WHERE EXTRACT(HOUR FROM created_at) < 6 AND EXTRACT(YEAR FROM created_at) = 2025
+
+# ---------- ranking: top N by group ----------
+- id: r01
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which ward had the most requests overall?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests WHERE ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r02
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which 5 wards had the most missed collection requests in 2025?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests
+    WHERE topic = 'Missed collection' AND EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+- id: r03
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: What are the 10 most common request types overall?
+  sql: SELECT request_type, COUNT(*) FROM v_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+- id: r04
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which ward had the fewest requests in 2024?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests
+    WHERE EXTRACT(YEAR FROM created_at) = 2024 AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 ASC LIMIT 1
+- id: r05
+  category: ranking
+  question: Rank all topics by number of requests.
+  sql: SELECT topic, COUNT(*) FROM v_requests GROUP BY 1 ORDER BY 2 DESC
+- id: r06
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which 3 postal areas had the most noise requests?
+  sql: |
+    SELECT postal_fsa, COUNT(*) FROM v_requests WHERE topic = 'Noise' AND postal_fsa IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 3
+- id: r07
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which ward had the most graffiti requests?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests WHERE topic = 'Graffiti and postering' AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r08
+  category: ranking
+  question: List the number of requests per division in 2025, largest first.
+  sql: |
+    SELECT division, COUNT(*) FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025
+    GROUP BY 1 ORDER BY 2 DESC
+- id: r09
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: What are the 5 most common request types in the Noise topic?
+  sql: |
+    SELECT request_type, COUNT(*) FROM v_requests WHERE topic = 'Noise'
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+- id: r10
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which section handled the most requests?
+  sql: SELECT section, COUNT(*) FROM v_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r11
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which 3 wards had the most snow and ice requests in 2025?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests
+    WHERE topic = 'Snow and ice' AND EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 3
+- id: r12
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: What was the most common topic in Spadina-Fort York?
+  sql: |
+    SELECT topic, COUNT(*) FROM v_requests WHERE ward_name = 'Spadina-Fort York'
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r13
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which street is most often the first street named in intersection requests?
+  sql: |
+    SELECT intersection_street_1, COUNT(*) FROM v_requests WHERE intersection_street_1 IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r14
+  category: ranking
+  question: List all wards with their number of trees requests, most first.
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests WHERE topic = 'Trees' AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC
+- id: r15
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which postal area had the most requests in 2025?
+  sql: |
+    SELECT postal_fsa, COUNT(*) FROM v_requests
+    WHERE EXTRACT(YEAR FROM created_at) = 2025 AND postal_fsa IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r16
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: What are the 3 most common request types in Etobicoke North in 2024?
+  sql: |
+    SELECT request_type, COUNT(*) FROM v_requests
+    WHERE ward_name = 'Etobicoke North' AND EXTRACT(YEAR FROM created_at) = 2024
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 3
+- id: r17
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which topic had the fewest requests?
+  sql: SELECT topic, COUNT(*) FROM v_requests GROUP BY 1 ORDER BY 2 ASC LIMIT 1
+- id: r18
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which 5 wards had the most hazardous waste requests?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests WHERE topic = 'Hazardous waste' AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+- id: r19
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which ward number had the most pothole and road damage requests in 2025?
+  sql: |
+    SELECT ward_id, COUNT(*) FROM v_requests
+    WHERE topic = 'Potholes and road damage' AND EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: r20
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: ranking
+  question: Which 3 request types had the most cancelled requests?
+  sql: |
+    SELECT request_type, COUNT(*) FROM v_requests WHERE status = 'Cancelled'
+    GROUP BY 1 ORDER BY 2 DESC LIMIT 3
+
+# ---------- semantics: questions that hit a trap in this dataset ----------
+- id: m01
+  category: semantics
+  question: How many pothole requests were there in total?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Potholes and road damage'
+- id: m02
+  category: semantics
+  question: How many requests are still open?
+  sql: SELECT COUNT(*) FROM v_requests WHERE status IN ('New', 'In Progress')
+- id: m03
+  category: semantics
+  question: How many requests were finished (completed or closed) in 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests
+    WHERE status IN ('Completed', 'Closed') AND EXTRACT(YEAR FROM created_at) = 2025
+- id: m04
+  category: semantics
+  question: How many forestry requests were there in 2024 and 2025 combined?
+  sql: |
+    SELECT COUNT(*) FROM v_requests
+    WHERE division IN ('Parks, Forestry & Recreation', 'Environment, Climate & Forestry')
+- id: m05
+  category: semantics
+  question: How many requests were logged at an intersection rather than a postal code?
+  sql: SELECT COUNT(*) FROM v_requests WHERE postal_fsa IS NULL
+- id: m06
+  category: semantics
+  question: How many requests were made last year?
+  sql: SELECT COUNT(*) FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025
+- id: m07
+  category: semantics
+  question: How many green bin (organics) missed pickups were reported?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Missed collection'
+    AND (request_type ILIKE '%organic%' OR request_type ILIKE '%green bin%')
+- id: m08
+  category: semantics
+  question: How many unresolved noise requests are there?
+  sql: SELECT COUNT(*) FROM v_requests WHERE topic = 'Noise' AND status IN ('New', 'In Progress')
+- id: m09
+  category: semantics
+  question: How many bin lid requests were there in 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE request_type ILIKE '%lid%' AND topic = 'Bins'
+    AND EXTRACT(YEAR FROM created_at) = 2025
+- id: m10
+  category: semantics
+  question: How many requests were made in winter months (December, January, February) across both years?
+  sql: SELECT COUNT(*) FROM v_requests WHERE EXTRACT(MONTH FROM created_at) IN (12, 1, 2)
+- id: m11
+  category: semantics
+  question: How many requests were there in Ward 14?
+  sql: SELECT COUNT(*) FROM v_requests WHERE ward_id = 14
+- id: m12
+  category: semantics
+  question: How many dead animal pickup requests were made?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Animals and wildlife'
+    AND (request_type ILIKE '%cadaver%' OR request_type ILIKE '%dead%')
+- id: m13
+  category: semantics
+  question: What percent of all requests were cancelled?
+  sql: SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'Cancelled') / COUNT(*), 1) FROM v_requests
+- id: m14
+  category: semantics
+  question: How many forestry division requests were made in 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE division = 'Environment, Climate & Forestry'
+    AND EXTRACT(YEAR FROM created_at) = 2025
+- id: m15
+  category: semantics
+  question: How many intersection requests name a second cross street?
+  sql: SELECT COUNT(*) FROM v_requests WHERE intersection_street_2 IS NOT NULL
+- id: m16
+  category: semantics
+  question: How many snow requests were made in the fall of 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Snow and ice'
+    AND EXTRACT(YEAR FROM created_at) = 2025 AND EXTRACT(MONTH FROM created_at) IN (9, 10, 11)
+- id: m17
+  category: semantics
+  question: How many request types are grouped under Other?
+  sql: SELECT COUNT(*) FROM request_types WHERE topic = 'Other'
+- id: m18
+  category: semantics
+  question: How many requests in Scarborough wards were there in 2025? (Scarborough wards are the ones whose name starts with Scarborough.)
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE ward_name LIKE 'Scarborough%'
+    AND EXTRACT(YEAR FROM created_at) = 2025
+- id: m19
+  category: semantics
+  question: How many pothole requests came in during the spring of 2025?
+  sql: |
+    SELECT COUNT(*) FROM v_requests WHERE topic = 'Potholes and road damage'
+    AND EXTRACT(YEAR FROM created_at) = 2025 AND EXTRACT(MONTH FROM created_at) IN (3, 4, 5)
+- id: m20
+  category: semantics
+  question: What share of 2024 requests are still open, as a percent?
+  sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('New', 'In Progress')) / COUNT(*), 1)
+    FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2024
+
+# ---------- multi_step: CTEs, ratios, comparisons, windows ----------
+- id: x01
+  category: multi_step
+  question: By what percent did total requests change from 2024 to 2025?
+  sql: |
+    SELECT ROUND(100.0 * (COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2025)
+      - COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2024))
+      / COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2024), 1) FROM v_requests
+- id: x02
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: Which topic grew the most in request count from 2024 to 2025?
+  sql: |
+    SELECT topic, COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2025)
+                - COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2024) AS change
+    FROM v_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: x03
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: Which ward had the highest share of its requests about noise, as a percent?
+  sql: |
+    SELECT ward_name, ROUND(100.0 * COUNT(*) FILTER (WHERE topic = 'Noise') / COUNT(*), 1) AS pct
+    FROM v_requests WHERE ward_id IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: x04
+  order_col: 1   # several topics tie on the percent, so their relative order is free
+  category: multi_step
+  question: For each topic, what percent of requests were cancelled? Sort from highest to lowest.
+  sql: |
+    SELECT topic, ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'Cancelled') / COUNT(*), 1) AS pct
+    FROM v_requests GROUP BY 1 ORDER BY 2 DESC, 1
+- id: x05
+  category: multi_step
+  question: How many wards had more than 20,000 requests in 2025?
+  sql: |
+    SELECT COUNT(*) FROM (SELECT ward_id FROM v_requests
+      WHERE EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL
+      GROUP BY ward_id HAVING COUNT(*) > 20000) w
+- id: x06
+  category: multi_step
+  question: What is the average number of requests per ward in 2024 (excluding unknown wards)?
+  sql: |
+    SELECT ROUND(AVG(n), 1) FROM (SELECT ward_id, COUNT(*) AS n FROM v_requests
+      WHERE EXTRACT(YEAR FROM created_at) = 2024 AND ward_id IS NOT NULL GROUP BY ward_id) w
+- id: x07
+  category: multi_step
+  question: For each ward, which topic had the most requests? Return ward name, topic and count.
+  sql: |
+    WITH c AS (SELECT ward_name, topic, COUNT(*) AS n,
+                      RANK() OVER (PARTITION BY ward_name ORDER BY COUNT(*) DESC) AS rk
+               FROM v_requests WHERE ward_id IS NOT NULL GROUP BY 1, 2)
+    SELECT ward_name, topic, n FROM c WHERE rk = 1 ORDER BY ward_name
+- id: x08
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: Which ward grew the least in requests from 2024 to 2025?
+  sql: |
+    SELECT ward_name, COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2025)
+                    - COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2024) AS change
+    FROM v_requests WHERE ward_id IS NOT NULL GROUP BY 1 ORDER BY 2 ASC LIMIT 1
+- id: x09
+  category: multi_step
+  question: What was the average number of noise requests per day in July 2025?
+  sql: |
+    SELECT ROUND(COUNT(*)::numeric / 31, 1) FROM v_requests
+    WHERE topic = 'Noise' AND created_at >= '2025-07-01' AND created_at < '2025-08-01'
+- id: x10
+  category: multi_step
+  question: How many request types appear in 2024 but never in 2025?
+  sql: |
+    SELECT COUNT(*) FROM (SELECT request_type FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2024
+      EXCEPT SELECT request_type FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025) t
+- id: x11
+  category: multi_step
+  question: Show the month-over-month change in total requests for 2025 (month, requests, change from previous month).
+  sql: |
+    WITH m AS (SELECT DATE_TRUNC('month', created_at)::date AS month, COUNT(*) AS n FROM v_requests
+               WHERE EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1)
+    SELECT month, n, n - LAG(n) OVER (ORDER BY month) FROM m ORDER BY month
+- id: x12
+  category: multi_step
+  question: What share of all 2025 requests came from the top 5 wards, as a percent?
+  sql: |
+    WITH w AS (SELECT ward_id, COUNT(*) AS n FROM v_requests
+               WHERE EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL
+               GROUP BY 1 ORDER BY 2 DESC LIMIT 5)
+    SELECT ROUND(100.0 * (SELECT SUM(n) FROM w)
+      / (SELECT COUNT(*) FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025), 1)
+- id: x13
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: Which topic has the highest share of requests made on weekends, as a percent?
+  sql: |
+    SELECT topic, ROUND(100.0 * COUNT(*) FILTER (WHERE EXTRACT(DOW FROM created_at) IN (0, 6)) / COUNT(*), 1)
+    FROM v_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: x14
+  category: multi_step
+  question: How many days in 2025 had more than 2,000 requests?
+  sql: |
+    SELECT COUNT(*) FROM (SELECT created_at::date FROM v_requests
+      WHERE EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1 HAVING COUNT(*) > 2000) d
+- id: x15
+  category: multi_step
+  question: For each year, what percent of requests were about missed collection?
+  sql: |
+    SELECT EXTRACT(YEAR FROM created_at) AS year,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE topic = 'Missed collection') / COUNT(*), 1)
+    FROM v_requests GROUP BY 1 ORDER BY 1
+- id: x16
+  category: multi_step
+  question: What is the ratio of 2025 to 2024 snow and ice requests, rounded to 2 decimals?
+  sql: |
+    SELECT ROUND(COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2025)::numeric
+               / COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM created_at) = 2024), 2)
+    FROM v_requests WHERE topic = 'Snow and ice'
+- id: x17
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: Which ward ranks second for total requests?
+  sql: |
+    SELECT ward_name, COUNT(*) FROM v_requests WHERE ward_id IS NOT NULL
+    GROUP BY 1 ORDER BY 2 DESC OFFSET 1 LIMIT 1
+- id: x18
+  category: multi_step
+  question: How many postal areas had at least 10,000 requests?
+  sql: |
+    SELECT COUNT(*) FROM (SELECT postal_fsa FROM v_requests WHERE postal_fsa IS NOT NULL
+      GROUP BY 1 HAVING COUNT(*) >= 10000) p
+- id: x19
+  answer_cols: [0]   # only the name/label is asked for; the count is context
+  category: multi_step
+  question: In 2025, which month had the highest share of requests about trees, as a percent?
+  sql: |
+    SELECT DATE_TRUNC('month', created_at)::date AS month,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE topic = 'Trees') / COUNT(*), 1)
+    FROM v_requests WHERE EXTRACT(YEAR FROM created_at) = 2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+- id: x20
+  category: multi_step
+  question: How many wards had more noise requests than trees requests in 2025?
+  sql: |
+    SELECT COUNT(*) FROM (SELECT ward_id FROM v_requests
+      WHERE EXTRACT(YEAR FROM created_at) = 2025 AND ward_id IS NOT NULL GROUP BY 1
+      HAVING COUNT(*) FILTER (WHERE topic = 'Noise') > COUNT(*) FILTER (WHERE topic = 'Trees')) w

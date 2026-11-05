@@ -1,0 +1,29 @@
+{
+  "name": "7b-D-full",
+  "model": "qwen7b",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "example_guard": false,
+  "n": 100,
+  "accuracy": 83.0,
+  "by_category": {
+    "multi_step": 50.0,
+    "ranking": 95.0,
+    "semantics": 80.0,
+    "simple": 95.0,
+    "time": 95.0
+  },
+  "outcomes": {
+    "correct": 83,
+    "wrong_result": 16,
+    "empty_result": 0,
+    "runtime_error": 1,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 12.3,
+  "p90_seconds": 20.1,
+  "avg_prompt_tokens": 1092,
+  "finished_at": "2026-11-05 16:42"
+}

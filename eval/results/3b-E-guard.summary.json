@@ -1,0 +1,29 @@
+{
+  "name": "3b-E-guard",
+  "model": "qwen3b",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "example_guard": true,
+  "n": 100,
+  "accuracy": 71.0,
+  "by_category": {
+    "multi_step": 40.0,
+    "ranking": 85.0,
+    "semantics": 60.0,
+    "simple": 95.0,
+    "time": 75.0
+  },
+  "outcomes": {
+    "correct": 71,
+    "wrong_result": 26,
+    "empty_result": 0,
+    "runtime_error": 3,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 6.9,
+  "p90_seconds": 13.0,
+  "avg_prompt_tokens": 1164,
+  "finished_at": "2026-11-05 16:42"
+}

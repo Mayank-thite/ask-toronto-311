@@ -1,0 +1,28 @@
+{
+  "name": "3b-D-full",
+  "model": "qwen3b",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "n": 100,
+  "accuracy": 73.0,
+  "by_category": {
+    "multi_step": 40.0,
+    "ranking": 85.0,
+    "semantics": 65.0,
+    "simple": 95.0,
+    "time": 80.0
+  },
+  "outcomes": {
+    "correct": 73,
+    "wrong_result": 24,
+    "empty_result": 1,
+    "runtime_error": 2,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 6.9,
+  "p90_seconds": 11.8,
+  "avg_prompt_tokens": 1121,
+  "finished_at": "2026-11-05 16:41"
+}

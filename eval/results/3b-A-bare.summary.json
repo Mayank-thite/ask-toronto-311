@@ -1,0 +1,28 @@
+{
+  "name": "3b-A-bare",
+  "model": "qwen3b",
+  "schema": "bare",
+  "examples": 0,
+  "retries": 0,
+  "n": 100,
+  "accuracy": 36.0,
+  "by_category": {
+    "multi_step": 15.0,
+    "ranking": 35.0,
+    "semantics": 30.0,
+    "simple": 50.0,
+    "time": 50.0
+  },
+  "outcomes": {
+    "correct": 36,
+    "wrong_result": 41,
+    "empty_result": 9,
+    "runtime_error": 13,
+    "invalid_sql": 1
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 5.8,
+  "p90_seconds": 10.6,
+  "avg_prompt_tokens": 190,
+  "finished_at": "2026-11-05 16:40"
+}

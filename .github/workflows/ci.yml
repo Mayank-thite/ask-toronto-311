@@ -1,0 +1,23 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ask311
+          POSTGRES_PASSWORD: ask311
+          POSTGRES_DB: toronto311
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - name: Load Toronto 311 data
+        run: PYTHONPATH=src python -m ask311.load
+      - name: Tests (guardrails, scoring, gold answers, read-only role)
+        run: pytest -v

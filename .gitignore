@@ -1,0 +1,6 @@
+data/raw/
+*.gguf
+__pycache__/
+.venv/
+.env
+answer.png
