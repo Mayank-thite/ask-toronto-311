@@ -1,0 +1,39 @@
+{
+  "name": "claude-opus-full",
+  "model": "claude-opus-5-5",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "example_guard": false,
+  "n": 100,
+  "accuracy": 99.0,
+  "by_category": {
+    "multi_step": 100,
+    "ranking": 100,
+    "semantics": 95.0,
+    "simple": 100,
+    "time": 100
+  },
+  "outcomes": {
+    "correct": 99,
+    "wrong_result": 1,
+    "empty_result": 0,
+    "runtime_error": 0,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 2.1,
+  "p90_seconds": 2.8,
+  "avg_prompt_tokens": 1656,
+  "finished_at": "2026-11-05 21:09",
+  "provider": "claude",
+  "effort": "low",
+  "cost_usd": 0.3854,
+  "cost_per_correct_usd": 0.00389,
+  "token_totals_this_session": {
+    "input": 35560,
+    "cache_write": 1300,
+    "cache_read": 128700,
+    "output": 9259
+  }
+}

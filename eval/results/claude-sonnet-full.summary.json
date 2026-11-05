@@ -1,0 +1,39 @@
+{
+  "name": "claude-sonnet-full",
+  "model": "claude-sonnet-5-5",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "example_guard": false,
+  "n": 100,
+  "accuracy": 98.0,
+  "by_category": {
+    "multi_step": 100,
+    "ranking": 100,
+    "semantics": 90.0,
+    "simple": 100,
+    "time": 100
+  },
+  "outcomes": {
+    "correct": 98,
+    "wrong_result": 2,
+    "empty_result": 0,
+    "runtime_error": 0,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 0,
+  "median_seconds": 1.7,
+  "p90_seconds": 2.2,
+  "avg_prompt_tokens": 1656,
+  "finished_at": "2026-11-05 21:02",
+  "provider": "claude",
+  "effort": "low",
+  "cost_usd": 0.193,
+  "cost_per_correct_usd": 0.00197,
+  "token_totals_this_session": {
+    "input": 35560,
+    "cache_write": 1300,
+    "cache_read": 128700,
+    "output": 9296
+  }
+}

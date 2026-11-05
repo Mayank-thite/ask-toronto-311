@@ -1,0 +1,39 @@
+{
+  "name": "claude-haiku-full",
+  "model": "claude-haiku-5-5",
+  "schema": "notes",
+  "examples": 3,
+  "retries": 2,
+  "example_guard": false,
+  "n": 100,
+  "accuracy": 97.0,
+  "by_category": {
+    "multi_step": 100,
+    "ranking": 100,
+    "semantics": 85.0,
+    "simple": 100,
+    "time": 100
+  },
+  "outcomes": {
+    "correct": 97,
+    "wrong_result": 3,
+    "empty_result": 0,
+    "runtime_error": 0,
+    "invalid_sql": 0
+  },
+  "fixed_by_retry": 1,
+  "median_seconds": 1.0,
+  "p90_seconds": 1.7,
+  "avg_prompt_tokens": 1676,
+  "finished_at": "2026-11-05 20:58",
+  "provider": "claude",
+  "effort": "low",
+  "cost_usd": 0.0119,
+  "cost_per_correct_usd": 0.00012,
+  "token_totals_this_session": {
+    "input": 36323,
+    "cache_write": 1300,
+    "cache_read": 130000,
+    "output": 13612
+  }
+}
