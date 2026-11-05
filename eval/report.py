@@ -25,6 +25,9 @@ LADDER = [("3b-A-bare", "Tables only"), ("3b-B-notes", "+ data notes"),
 BEST = "7b-D-full"
 DEMOS = ["t06", "r02", "m04", "x16", "x07"]
 MODELS = [("1.5b-D-full", "Qwen2.5-Coder 1.5B"), ("3b-D-full", "Qwen2.5-Coder 3B"), ("7b-D-full", "Qwen2.5-Coder 7B")]
+CLAUDE = [("claude-haiku-full", "Claude Haiku 5.5"), ("claude-sonnet-full", "Claude Sonnet 5.5"),
+          ("claude-opus-full", "Claude Opus 5.5")]
+CLAUDE_BARE = ("claude-sonnet-bare", "Claude Sonnet 5.5, tables only")
 CATS = [("simple", "Simple"), ("time", "Time"), ("ranking", "Ranking"), ("semantics", "Data traps"), ("multi_step", "Multi-step")]
 
 
@@ -138,6 +141,28 @@ def fmt(v):
     return int(v) if isinstance(v, float) and v.is_integer() else v
 
 
+def claude_stats():
+    """[(label, summary, ci, (gained, lost, p) vs the local 7B)] plus the Sonnet context ablation."""
+    base = correct_map(BEST)
+    out = []
+    for name, label in CLAUDE + [CLAUDE_BARE]:
+        s = load(name)
+        if not s:
+            continue
+        cur = correct_map(name)
+        lost, gained, p = mcnemar_exact(base, cur)
+        out.append((label, s, wilson(sum(cur.values()), len(cur)), (gained, lost, p)))
+    return out
+
+
+def context_test():
+    """Sonnet tables-only vs full agent: (gained, lost, p) or None."""
+    if not (load(CLAUDE_BARE[0]) and load("claude-sonnet-full")):
+        return None
+    lost, gained, p = mcnemar_exact(correct_map(CLAUDE_BARE[0]), correct_map("claude-sonnet-full"))
+    return gained, lost, p
+
+
 def table(rows, cols, limit=8):
     head = "".join(f"<th>{html.escape(str(c))}</th>" for c in cols)
     body = "".join("<tr>" + "".join(f"<td>{html.escape(str(fmt(v)))}</td>" for v in r) + "</tr>" for r in rows[:limit])
@@ -155,6 +180,13 @@ def main():
     if models:
         hbar([(l, s["accuracy"]) for l, s, _, _ in ms], IMG / "models.png",
              "Same agent, three model sizes, with 95% CI", highlight_last=False, cis=[c for _, _, c, _ in ms])
+    cs = claude_stats()
+    if cs:
+        allm = [(l, s_["accuracy"], c) for l, s_, c, _ in ms] + [(l, s_["accuracy"], c) for l, s_, c, _ in cs]
+        allm.sort(key=lambda x: x[1])
+        hbar([(l, a) for l, a, _ in allm], IMG / "all-models.png",
+             "Same 100 questions, local and hosted models, with 95% CI", highlight_last=False,
+             cis=[c for _, _, c in allm])
     categories_chart([(l, s) for l, s in ladder if l in ("Tables only", "+ data notes", "+ self-correction")], IMG / "categories.png")
 
     md = ["# Evaluation results", "", "100 questions with hand-checked answers, scored by execution accuracy "
@@ -174,6 +206,22 @@ def main():
         vs = f"+{t[0]} / -{t[1]}, {fmt_p(t[2])}" if t else ""
         md.append(f"| {label} | **{s['accuracy']:.0f}** | {ci[0]:.0f}-{ci[1]:.0f} | {s['by_category'].get('semantics', 0):.0f} | "
                   f"{s['by_category'].get('multi_step', 0):.0f} | {s['median_seconds']} | {s['p90_seconds']} | {vs} |")
+    cs = claude_stats()
+    if cs:
+        md += ["", "## Hosted models: Claude (Anthropic API, effort low)", "",
+               "Same agent code, same prompt, same scorer. Latency is wall time per question through the API, "
+               "so it is not comparable to the CPU numbers above. Cost is the real API spend for the run, "
+               "with the schema and notes block served from the prompt cache. The last column is McNemar "
+               "against the local 7B.", "",
+               "| Model | Correct | 95% CI | Data traps | Multi-step | Median s | p90 s | Run cost | Cost per correct | vs Qwen 7B |",
+               "|---|---|---|---|---|---|---|---|---|---|"]
+        for label, s_, ci, t in cs:
+            md.append(f"| {label} | **{s_['accuracy']:.0f}** | {ci[0]:.0f}-{ci[1]:.0f} | {s_['by_category'].get('semantics', 0):.0f} | "
+                      f"{s_['by_category'].get('multi_step', 0):.0f} | {s_['median_seconds']} | {s_['p90_seconds']} | "
+                      f"${s_['cost_usd']:.3f} | ${s_['cost_per_correct_usd']:.5f} | +{t[0]} / -{t[1]}, {fmt_p(t[2])} |")
+        ct = context_test()
+        if ct:
+            md += ["", f"Context ablation on Sonnet: tables only to full agent is +{ct[0]} / -{ct[1]}, {fmt_p(ct[2])}."]
     md += ["", "## Error analysis (7B, hand-labelled, one primary cause per miss)", "", "| Cause | Misses | Questions |", "|---|---|---|"]
     for cause, n, items in error_taxonomy():
         md.append(f"| {cause.replace('_', ' ')} | {n} | " + "; ".join(f"{k}: {v}" for k, v in items.items()) + " |")
@@ -218,12 +266,18 @@ def write_page(ladder, models):
         f"<tr><td>{html.escape(l)}</td><td><b>{s['accuracy']:.0f}</b></td><td>{ci[0]:.0f}&ndash;{ci[1]:.0f}</td>"
         f"<td>{s['median_seconds']}s</td><td>{s['p90_seconds']}s</td><td>{vs(t)}</td></tr>"
         for l, s, ci, t in model_stats())
+    def money(v):
+        return f"${v:.3f}" if v >= 0.01 else f"${v:.4f}"
+    claude_rows = "".join(
+        f"<tr><td>{html.escape(l)}</td><td><b>{s['accuracy']:.0f}</b></td><td>{ci[0]:.0f}&ndash;{ci[1]:.0f}</td>"
+        f"<td>{s['median_seconds']}s</td><td>{money(s['cost_usd'])}</td><td>{money(s['cost_per_correct_usd'])}</td><td>{vs(t)}</td></tr>"
+        for l, s, ci, t in claude_stats())
     error_rows = "".join(
         f"<tr><td>{html.escape(c.replace('_', ' ').capitalize())}</td><td><b>{n}</b></td><td>"
         + "<br>".join(f"<code>{k}</code> {html.escape(v)}" for k, v in items.items()) + "</td></tr>"
         for c, n, items in error_taxonomy())
     page = (ROOT / "docs" / "template.html").read_text()
-    page = (page.replace("{{LADDER_ROWS}}", ladder_rows).replace("{{MODEL_ROWS}}", model_rows).replace("{{ERROR_ROWS}}", error_rows)
+    page = (page.replace("{{LADDER_ROWS}}", ladder_rows).replace("{{MODEL_ROWS}}", model_rows).replace("{{CLAUDE_ROWS}}", claude_rows).replace("{{ERROR_ROWS}}", error_rows)
                 .replace("{{DEMOS}}", "\n".join(demos)).replace("{{BEST_ACC}}", f"{best['accuracy']:.0f}")
                 .replace("{{BASE_ACC}}", f"{ladder[0][1]['accuracy']:.0f}"))
     (ROOT / "docs" / "index.html").write_text(page)

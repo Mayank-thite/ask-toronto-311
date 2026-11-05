@@ -1,6 +1,6 @@
 # Ask Toronto 311
 
-**A text-to-SQL agent over 937,312 Toronto 311 service requests, run on small open-weight models on a CPU and measured on 100 hand-checked questions.**
+**A text-to-SQL agent over 937,312 Toronto 311 service requests, run on small open-weight models on a CPU and on Claude through the API, and measured on 100 hand-checked questions.**
 
 [Results page](https://mayank-thite.github.io/ask-toronto-311/) · [Full evaluation report](eval/REPORT.md) · [Per-question results](eval/results/)
 
@@ -23,12 +23,13 @@ Don Valley West         3705
 
 | | |
 |---|---|
-| Execution accuracy, Qwen2.5-Coder 7B | **83 / 100** (95% CI 74 to 89) |
+| Execution accuracy, Qwen2.5-Coder 7B (local, 4-core CPU) | **83 / 100** (95% CI 74 to 89), 12.3 s median, $0 |
+| Execution accuracy, Claude Haiku / Sonnet / Opus 5.5 (API) | **97 / 98 / 99**, 1 to 2 s median, $0.01 to $0.39 for all 100 questions |
 | Same 3B model, tables only → notes + retrieved examples | **36 → 73** (exact McNemar p < 0.001 for each step) |
-| Questions rescued by self-correction | **0**. Remaining misses are silent wrong answers, not errors |
-| Median latency (7B, 4-core CPU, no GPU) | 12.3 s, about 1,100 prompt tokens, $0 per question |
+| Claude Sonnet 5.5, tables only → full context | **76 → 98** (+23 / −1, p < 0.001) |
+| Questions rescued by self-correction | **0** on local models. Remaining misses are silent wrong answers, not errors |
 
-What this shows: on this task, context (a small semantic layer and a few retrieved examples) moved accuracy far more than model size or an agentic retry loop. Every claim here comes from saved per-question outputs, with intervals and paired tests.
+What this shows: context (a small semantic layer and a few retrieved examples) moved accuracy more than anything else, and that holds for frontier models too. Without context, Sonnet does no better than a local 7B model with it (76 vs. 83, p = 0.25). Every claim here comes from saved per-question outputs, with intervals and paired tests.
 
 ## 1. Architecture
 
@@ -54,6 +55,7 @@ flowchart LR
 | `schema_context.py` | Builds the schema block and the data notes. Value lists (statuses, divisions, topics, date range) are read from the database, so the notes can't drift |
 | `retrieval.py` | BM25 over 24 solved examples (`examples.yaml`). None overlap with the test set |
 | `agent.py` | The loop: prompt, extract SQL, guard, execute, feed errors back (max 2 retries) |
+| `llm.py`, `claude_llm.py` | Model adapters with one `chat()` method: any OpenAI-compatible server (local models), or Claude through the Anthropic SDK with prompt caching and a spend cap |
 | `guard.py` | sqlglot parse; exactly one SELECT/UNION; allowlisted tables and CTEs; adds `LIMIT 500` |
 | `sql/schema.sql` | Schema, the joined view, and the `agent_ro` role (SELECT grants, read-only transactions, 15 s timeout) |
 | `compare.py` | Result-set comparison used for scoring |
@@ -80,16 +82,18 @@ The result rows are the answer. The model never writes a prose summary, so there
 
 | Setting | Value | Reason |
 |---|---|---|
-| Models | Qwen2.5-Coder Instruct 1.5B / 3B / 7B | Code-tuned, open weights, CPU-sized |
+| Models | Qwen2.5-Coder Instruct 1.5B / 3B / 7B (local); Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 (API) | Open weights that fit a CPU, against hosted models at three price points |
 | Weights | GGUF Q4_K_M (4-bit) | 7B runs in about 5 GB RAM |
-| Serving | llama.cpp server or Ollama | OpenAI-compatible `/chat/completions`, so any provider works via `LLM_BASE_URL` |
-| Decoding | temperature 0, max 400 tokens, context 8,192 | Greedy output: reproducible runs and paired comparisons |
+| Serving | llama.cpp server or Ollama; Anthropic SDK for Claude | Two adapters behind one `chat()` method, so the agent and the evaluation never change |
+| Decoding | Local: temperature 0, max 400 tokens. Claude: effort `low` (adaptive thinking, no sampling settings) | Greedy local output for paired comparisons. Low effort keeps Claude cheap and fast on short SQL tasks |
 | Output contract | one query in a fenced `sql` block | Extracted by regex, validated by sqlglot, rejected with a reason otherwise |
 | Calls per question | 1.03 average (7B) | Retries fire only on loud failures |
 
 **Prompt budget** (one real question, 7B tokenizer): system 32 · tables and columns 128 · **data notes 681** · 3 examples 248 · question 19. That's about 1,100 tokens in and about 50 out.
 
 **Prompt ordering for the KV cache.** The static parts (system, schema, notes) come first and the per-question parts (examples, question) last. llama.cpp reuses the KV cache for a matching prefix. Over the 7B run it reused about 870 tokens per question and evaluated about 190 new ones, so roughly 80% of prompt processing was skipped. On a CPU, that's the dominant cost.
+
+**Prompt caching on Claude.** The same ordering pays off with the API. The Claude adapter sends the schema and notes as their own content block with a cache marker, so every question after the first reads them at a tenth of the input price. Over a full run, about 78% of input tokens came from the cache. The adapter also adds up the real cost from each response's usage numbers and stops the run before it passes `--max-usd`.
 
 ## 3. Evaluation method
 
@@ -128,6 +132,21 @@ The result rows are the answer. The model never writes a prose summary, so there
 
 Bigger is better, but neither step clears p < 0.05 on 100 questions. The context effect is the stronger result. 3B to 7B costs about 1.8 times the latency for 10 points. Per-category numbers are in [eval/REPORT.md](eval/REPORT.md).
 
+### Hosted models: Claude (full agent, effort low)
+
+| Model | Correct | 95% CI | Median | Run cost (100 Qs) | Per correct answer | vs Qwen 7B |
+|---|---|---|---|---|---|---|
+| Claude Haiku 5.5 | **97** | 92 to 99 | 1.0 s | $0.012 | $0.0001 | +15 / −1, p < 0.001 |
+| Claude Sonnet 5.5 | **98** | 93 to 99 | 1.7 s | $0.19 | $0.002 | +15 / −0, p < 0.001 |
+| Claude Opus 5.5 | **99** | 95 to 100 | 2.1 s | $0.39 | $0.004 | +16 / −0, p < 0.001 |
+| Claude Sonnet 5.5, tables only | 76 | 67 to 83 | 1.9 s | $0.20 | $0.003 | +10 / −17, p = 0.25 |
+
+- **Hosted beats local clearly.** Haiku gets 14 more right than the 7B, about 12 times faster, for about a cent for all 100 questions.
+- **The set is saturated for hosted models.** 97, 98 and 99 overlap. No pair differs significantly (Haiku vs. Opus: +2 / −0, p = 0.50). Ranking them needs harder questions.
+- **Context isn't only for small models.** Sonnet with tables only scores 76, no better than the 7B with context (83, p = 0.25). Adding notes and examples back is +23 / −1 (p < 0.001). All 24 of its misses are silent wrong results, with no invalid SQL.
+- **What's left is data traps.** The 6 misses across the three full runs fall on 3 questions. All three models count "dead animal" requests by keyword and get 493. The city files most of them under "cadaver", and the true count is 34,492. That's a gap in the notes, not in the model.
+- API latency includes the network and isn't comparable to the local CPU numbers.
+
 ## 5. Error analysis (7B, all 17 misses hand-labelled)
 
 | Cause | Misses | Example |
@@ -151,7 +170,8 @@ All six causes are silent: the query runs and returns something plausible. The 7
 | Parser allowlist **and** read-only DB role | Prompt instructions | A prompt isn't a security boundary. A test proves `DELETE` fails at the database |
 | Greedy decoding | Sampling | Reproducibility and paired statistics. Sampling is reserved for voting |
 | Rows as the answer | LLM-written summary | One fewer hallucination surface, half the calls |
-| OpenAI-compatible client, local models | Hosted API | No key, no data egress, $0. Switching providers is one env var |
+| Two thin adapters (OpenAI-compatible, Anthropic SDK) | One generic client | Each uses its provider's own features (llama.cpp prefix reuse, Claude prompt caching and effort) while the agent stays unchanged |
+| Spend cap inside the adapter | Watching the bill | A run can't overspend. Results are saved per question, so a stopped run resumes |
 
 ## 7. Limitations and next steps
 
@@ -159,13 +179,14 @@ All six causes are silent: the query runs and returns something plausible. The 7
 - **One author** wrote the questions, gold SQL, notes and examples, so the notes likely fit the test set better than they'd fit outside questions.
 - **No confidence signal.** The agent can't tell a silent wrong answer from a right one, and that's where the remaining error is.
 - **Single-turn.** It doesn't ask clarifying questions.
+- **Ceiling effect.** Hosted models score 97 to 99, so this set ranks local models but can't separate hosted ones.
 
 Next steps, by expected gain per hour:
 
 1. **Result-shape check.** A "how many" question that returns more than one row gets sent back. Targets 3 misses.
 2. **Two notes.** One on wrapping time ranges and one on preferring `topic` over keyword search. Targets 6 misses.
 3. **Self-consistency.** Sample 5 queries, execute all of them, and keep the majority result. This is the standard defence against silent errors, at about 5 times the compute.
-4. **A 300-question test set**, partly written by someone else.
+4. **A harder, 300-question test set**, partly written by someone else, with ambiguous phrasing and multi-table questions. It would also separate the hosted models.
 
 ## 8. Data problems found while loading
 
@@ -176,7 +197,7 @@ Next steps, by expected gain per hour:
 
 ## Run it
 
-Requirements: Python 3.11+, Docker (or PostgreSQL 14+), Ollama.
+Requirements: Python 3.11+, Docker (or PostgreSQL 14+), and Ollama or an Anthropic API key.
 
 ```bash
 git clone https://github.com/Mayank-thite/ask-toronto-311 && cd ask-toronto-311
@@ -193,6 +214,12 @@ Evaluate and rebuild the report:
 python eval/run_eval.py --name my-run --model qwen2.5-coder:7b    # about 23 min on 4 CPU cores
 python eval/report.py                                            # REPORT.md, charts, docs/index.html
 pytest                                                           # unit tests; CI also loads the real data
+```
+
+Claude instead of a local model (needs `ANTHROPIC_API_KEY`):
+
+```bash
+python eval/run_eval.py --name claude-haiku-full --provider claude --model claude-haiku-5-5 --max-usd 1
 ```
 
 Flags `--schema bare|notes`, `--examples N`, `--retries N` and `--example-guard` reproduce each ablation row.

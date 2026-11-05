@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ask Toronto 311</title>
-<meta name="description" content="Technical report: a text-to-SQL agent over 937,312 Toronto 311 requests, run on local open-source models and evaluated on 100 hand-checked questions.">
+<meta name="description" content="Technical report: a text-to-SQL agent over 937,312 Toronto 311 requests, run on local open-weight models and on Claude through the API, evaluated on 100 hand-checked questions.">
 <style>
 :root { --bg:#fbfbfa; --card:#ffffff; --ink:#1f2933; --muted:#616e7c; --line:#e4e7eb; --accent:#2563eb; --accent-soft:#dbe7fe; --ok:#15803d; --bad:#b91c1c; --code:#f3f4f6;
         --s1:#94a3b8; --s2:#64748b; --s3:#2563eb; --s4:#7aa5f5; --s5:#1e3a8a; }
@@ -64,14 +64,14 @@ footer { margin-top:64px; color:var(--muted); font-size:.85rem; }
 <main>
 <div class="kicker">Technical report · LLM agents · text-to-SQL · evaluation</div>
 <h1>Ask Toronto 311</h1>
-<p class="lede">A text-to-SQL agent that answers plain-English questions about 937,312 Toronto 311 service requests (2024 to 2025). It runs on small open-weight models on a CPU, never gets write access to the database, and is measured on 100 questions with hand-checked answers.</p>
+<p class="lede">A text-to-SQL agent that answers plain-English questions about 937,312 Toronto 311 service requests (2024 to 2025). It runs on small open-weight models on a CPU or on Claude through the API, never gets write access to the database, and is measured on 100 questions with hand-checked answers.</p>
 <nav class="toc"><a href="#arch">Architecture</a><a href="#llm">How the model is used</a><a href="#eval">Evaluation method</a><a href="#results">Results</a><a href="#errors">Error analysis</a><a href="#design">Design decisions</a><a href="#limits">Limitations</a><a href="#demos">Sample runs</a></nav>
 
 <div class="stats">
-  <div class="stat"><b>83 / 100</b><span>execution accuracy, Qwen2.5-Coder 7B (95% CI 74 to 89)</span></div>
-  <div class="stat"><b>36 → 73</b><span>3B model, tables only vs. data notes plus retrieved examples (p &lt; 0.001)</span></div>
-  <div class="stat"><b>0</b><span>questions rescued by self-correction. The misses are silent, not errors</span></div>
-  <div class="stat"><b>12.3 s · $0</b><span>median answer time on a 4-core CPU, with no API cost</span></div>
+  <div class="stat"><b>83 / 100</b><span>Qwen2.5-Coder 7B on a 4-core CPU, $0 per question (95% CI 74 to 89)</span></div>
+  <div class="stat"><b>97 / 100</b><span>Claude Haiku 5.5, 1.0 s median, $0.012 for all 100 questions</span></div>
+  <div class="stat"><b>76 → 98</b><span>Claude Sonnet 5.5, tables only vs. full context (p &lt; 0.001). Context still matters at the frontier</span></div>
+  <div class="stat"><b>All misses</b><span>left on hosted models are data traps: the query runs and the number is wrong</span></div>
 </div>
 
 <h2 id="arch">1. Architecture</h2>
@@ -92,7 +92,7 @@ footer { margin-top:64px; color:var(--muted); font-size:.85rem; }
   <rect class="box" x="20" y="158" width="150" height="62" rx="8"/><text class="t" x="32" y="182">Question</text><text class="s" x="32" y="200">plain English</text>
   <rect class="box" x="205" y="158" width="170" height="62" rx="8"/><text class="t" x="217" y="182">Retriever</text><text class="s" x="217" y="200">BM25, top 3 of 24 examples</text>
   <rect class="box" x="410" y="158" width="190" height="62" rx="8"/><text class="t" x="422" y="182">Prompt builder</text><text class="s" x="422" y="200">schema + notes + examples</text>
-  <rect class="box hl" x="635" y="158" width="205" height="62" rx="8"/><text class="t" x="647" y="182">LLM (Qwen2.5-Coder)</text><text class="s" x="647" y="200">llama.cpp / Ollama, temp 0</text>
+  <rect class="box hl" x="635" y="158" width="205" height="62" rx="8"/><text class="t" x="647" y="182">LLM (Qwen or Claude)</text><text class="s" x="647" y="200">llama.cpp / Ollama, or Claude API</text>
   <path class="arrow" d="M170,189 H201"/><path class="arrow" d="M375,189 H406"/><path class="arrow" d="M600,189 H631"/>
 
   <rect class="box" x="635" y="270" width="205" height="62" rx="8"/><text class="t" x="647" y="294">Guard (sqlglot)</text><text class="s" x="647" y="312">SELECT only, row cap</text>
@@ -125,10 +125,10 @@ for attempt in range(1 + max_retries):                     # max_retries = 2
 <h2 id="llm">2. How the model is used</h2>
 <div class="scroll"><table class="wraptable">
 <tr><th>Setting</th><th>Value</th><th>Why</th></tr>
-<tr><td>Models</td><td>Qwen2.5-Coder Instruct 1.5B, 3B, 7B</td><td>Code-tuned, open weights, small enough for CPU</td></tr>
+<tr><td>Models</td><td>Qwen2.5-Coder Instruct 1.5B, 3B, 7B (local). Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 (API)</td><td>Open weights small enough for a CPU, compared with hosted models at three price points</td></tr>
 <tr><td>Weights</td><td>GGUF, Q4_K_M (4-bit)</td><td>7B fits in about 5 GB of RAM</td></tr>
-<tr><td>Serving</td><td>llama.cpp server (Ollama works too)</td><td>OpenAI-compatible <code>/chat/completions</code>, so the client is provider-agnostic</td></tr>
-<tr><td>Decoding</td><td>temperature 0, max 400 tokens, context 8,192</td><td>Greedy output makes every run reproducible and every comparison paired</td></tr>
+<tr><td>Serving</td><td>llama.cpp server (Ollama works too), or the Anthropic SDK</td><td>Two adapters behind one <code>chat()</code> method, so the agent and the evaluation never change</td></tr>
+<tr><td>Decoding</td><td>Local: temperature 0, max 400 tokens, context 8,192. Claude: effort low</td><td>Greedy local output makes runs reproducible and comparisons paired. Low effort keeps Claude fast and cheap on short SQL tasks</td></tr>
 <tr><td>Output contract</td><td>one query in a <code>```sql</code> block</td><td>Parsed by regex, then by sqlglot. Anything else is rejected with a reason</td></tr>
 <tr><td>Calls per question</td><td>1.03 on average (7B)</td><td>Retries only fire on loud failures</td></tr>
 </table></div>
@@ -188,6 +188,17 @@ for attempt in range(1 + max_retries):                     # max_retries = 2
 <figure><img src="img/models.png" alt="Accuracy for 1.5B, 3B and 7B models with 95% confidence intervals"></figure>
 <div class="scroll"><table><tr><th>Model</th><th>Correct</th><th>95% CI</th><th>Median</th><th>p90</th><th>vs smaller (right / wrong)</th></tr>{{MODEL_ROWS}}</table></div>
 <p>Each step up in size helps, but on 100 questions neither step clears p &lt; 0.05 (p = 0.06 and p = 0.05). The context ablation is a much stronger result than the model-size one. Going from 3B to 7B costs about 1.8 times the latency for 10 points.</p>
+<h3>Hosted models: Claude</h3>
+<p>The same agent, prompt and scorer, with one adapter swapped in (<code>claude_llm.py</code>, official Anthropic SDK). Thinking effort is set to low. The schema and notes block carries a cache marker, so after the first question it's read from the prompt cache. Across a run, about 78% of input tokens came from the cache. The last column compares each model with the local 7B on the same questions.</p>
+<figure><img src="img/all-models.png" alt="Accuracy for local and hosted models with 95% confidence intervals"></figure>
+<div class="scroll"><table><tr><th>Model</th><th>Correct</th><th>95% CI</th><th>Median</th><th>Run cost</th><th>Per correct answer</th><th>vs Qwen 7B (right / wrong)</th></tr>{{CLAUDE_ROWS}}</table></div>
+<ul>
+  <li><b>Hosted beats local by a clear margin.</b> Haiku 5.5 gets 14 more right than the 7B (+15 / &minus;1, p &lt; 0.001), about 12 times faster. All 100 questions cost about a cent.</li>
+  <li><b>The test set is saturated for these models.</b> Haiku, Sonnet and Opus score 97, 98 and 99, and their intervals overlap almost completely. No pair differs significantly (Haiku vs. Opus is +2 / &minus;0, p = 0.50). Telling them apart needs harder questions, not more runs of these.</li>
+  <li><b>Context is not a small-model crutch.</b> Without notes or examples, Sonnet drops to 76, no better than the local 7B <i>with</i> context (83, p = 0.25). Adding them back gives +23 / &minus;1 (p &lt; 0.001). All 24 tables-only misses are silent wrong results, with no invalid SQL.</li>
+  <li><b>What's left is data traps.</b> The 6 misses across the three full runs fall on 3 questions. All three models count "dead animal" requests with a keyword search, which finds 493. The city files most of them under "cadaver", and the real count is 34,492. A model can't infer that, so it's a gap in the notes, and adding one line should fix it.</li>
+  <li><b>Latency isn't comparable.</b> API wall time and local CPU time measure different things. The hosted numbers include the network.</li>
+</ul>
 <figure><img src="img/categories.png" alt="Accuracy by question category for three setups"><figcaption>3B, by category. Multi-step stays hardest throughout.</figcaption></figure>
 
 <h2 id="errors">5. Error analysis</h2>
@@ -204,7 +215,8 @@ for attempt in range(1 + max_retries):                     # max_retries = 2
 <tr><td>Two safety layers: parser allowlist and DB role</td><td>Prompt instructions only</td><td>Prompts aren't a security boundary. Even a query that slips past the parser can't write, because the role has SELECT grants only and read-only transactions. That's tested.</td></tr>
 <tr><td>Greedy decoding</td><td>Sampling</td><td>Reproducible runs and paired statistics. Sampling is saved for a future voting step.</td></tr>
 <tr><td>Return rows, not model-written prose</td><td>Have the LLM narrate the answer</td><td>Removes a second place to hallucinate and halves the calls.</td></tr>
-<tr><td>Local models behind an OpenAI-compatible client</td><td>A hosted API</td><td>No key, no data leaving the machine, $0 per question. Pointing <code>LLM_BASE_URL</code> at a hosted model is a one-line change.</td></tr>
+<tr><td>One <code>chat()</code> interface, two adapters (OpenAI-compatible for local models, Anthropic SDK for Claude)</td><td>One generic client for everything</td><td>The agent and the evaluation don't change between providers. Each adapter uses its provider's own features, such as llama.cpp's prefix reuse or Claude's prompt cache and effort setting, instead of a lowest-common-denominator shim.</td></tr>
+<tr><td>A hard spend cap in the adapter</td><td>Watch the bill</td><td>The Claude adapter tracks real cost from the API's usage numbers and stops the run before it passes <code>--max-usd</code>. Results are written per question, so a stopped run resumes where it left off.</td></tr>
 </table></div>
 
 <h2 id="limits">7. Limitations</h2>
@@ -213,14 +225,15 @@ for attempt in range(1 + max_retries):                     # max_retries = 2
   <li><b>One author.</b> The same person wrote the questions, the gold SQL, the notes and the examples. The notes probably cover the traps better than they would for questions written by strangers.</li>
   <li><b>No confidence signal.</b> The agent can't tell a right answer from a silent wrong one, and that's where most of the remaining error is.</li>
   <li><b>Single-turn.</b> It doesn't ask clarifying questions. For ambiguous phrasing, it picks one reading.</li>
-  <li><b>CPU latency.</b> 12 s median for 7B is fine for analysis and too slow for chat. A GPU or a hosted model would cut it by an order of magnitude.</li>
+  <li><b>CPU latency.</b> 12 s median for 7B is fine for analysis and too slow for chat. Hosted models answer in 1 to 2 s, but the data leaves the machine.</li>
+  <li><b>Ceiling effect.</b> Hosted models score 97 to 99, so this set can rank local models but not hosted ones.</li>
 </ul>
 <h3>Next steps, ranked by expected gain per hour</h3>
 <ol>
   <li><b>Result-shape check.</b> If a "how many" question returns more than one row, send it back. Targets all 3 output-shape misses.</li>
   <li><b>Two more notes.</b> One on time ranges that wrap past midnight or the year end, and one telling the model to prefer topic over keyword search. Targets 6 misses.</li>
   <li><b>Self-consistency.</b> Sample 5 queries, execute them all, and keep the majority result. This is the standard answer to silent errors, at about 5 times the compute.</li>
-  <li><b>A 300-question test set</b> written partly by someone else, to tighten intervals and test the notes honestly.</li>
+  <li><b>A harder, 300-question test set</b> written partly by someone else, with more ambiguous phrasing and multi-table questions. It would tighten intervals, separate the hosted models and test the notes honestly.</li>
 </ol>
 
 <h2 id="demos">8. Sample runs</h2>

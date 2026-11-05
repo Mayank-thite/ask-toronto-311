@@ -22,6 +22,19 @@ Each row adds one component to the row above. Same 100 questions, greedy decodin
 | Qwen2.5-Coder 3B | **73** | 64-81 | 65 | 40 | 6.9 | 11.8 | +14 / -5, p = 0.06 |
 | Qwen2.5-Coder 7B | **83** | 74-89 | 80 | 50 | 12.3 | 20.1 | +16 / -6, p = 0.05 |
 
+## Hosted models: Claude (Anthropic API, effort low)
+
+Same agent code, same prompt, same scorer. Latency is wall time per question through the API, so it is not comparable to the CPU numbers above. Cost is the real API spend for the run, with the schema and notes block served from the prompt cache. The last column is McNemar against the local 7B.
+
+| Model | Correct | 95% CI | Data traps | Multi-step | Median s | p90 s | Run cost | Cost per correct | vs Qwen 7B |
+|---|---|---|---|---|---|---|---|---|---|
+| Claude Haiku 5.5 | **97** | 92-99 | 85 | 100 | 1.0 | 1.7 | $0.012 | $0.00012 | +15 / -1, p < 0.001 |
+| Claude Sonnet 5.5 | **98** | 93-99 | 90 | 100 | 1.7 | 2.2 | $0.193 | $0.00197 | +15 / -0, p < 0.001 |
+| Claude Opus 5.5 | **99** | 95-100 | 95 | 100 | 2.1 | 2.8 | $0.385 | $0.00389 | +16 / -0, p < 0.001 |
+| Claude Sonnet 5.5, tables only | **76** | 67-83 | 65 | 65 | 1.9 | 2.7 | $0.198 | $0.00260 | +10 / -17, p = 0.25 |
+
+Context ablation on Sonnet: tables only to full agent is +23 / -1, p < 0.001.
+
 ## Error analysis (7B, hand-labelled, one primary cause per miss)
 
 | Cause | Misses | Questions |
