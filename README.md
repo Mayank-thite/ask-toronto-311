@@ -1,8 +1,8 @@
 # Ask Toronto 311
 
-**A text-to-SQL agent over 937,312 Toronto 311 service requests, run on small open-weight models on a CPU and on Claude through the API, and measured on 100 hand-checked questions.**
+Type a question about Toronto's 311 requests in plain English. Get back the answer, pulled straight from the city's data, along with the SQL query that found it.
 
-[Results page](https://mayank-thite.github.io/ask-toronto-311/) · [Full evaluation report](eval/REPORT.md) · [Per-question results](eval/results/)
+[Results page](https://mayank-thite.github.io/ask-toronto-311/) · [Full evaluation report](eval/REPORT.md) · [Every answer the models gave](eval/results/)
 
 ```
 $ python -m ask311 "Which 5 wards had the most missed collection requests in 2025?"
@@ -19,19 +19,168 @@ Scarborough-Rouge Park  4065
 Don Valley West         3705
 ```
 
-## Summary
+## Why I built this
 
-| | |
-|---|---|
-| Execution accuracy, Qwen2.5-Coder 7B (local, 4-core CPU) | **83 / 100** (95% CI 74 to 89), 12.3 s median, $0 |
-| Execution accuracy, Claude Haiku / Sonnet / Opus 5.5 (API) | **97 / 98 / 99**, 1 to 2 s median, $0.01 to $0.39 for all 100 questions |
-| Same 3B model, tables only → notes + retrieved examples | **36 → 73** (exact McNemar p < 0.001 for each step) |
-| Claude Sonnet 5.5, tables only → full context | **76 → 98** (+23 / −1, p < 0.001) |
-| Questions rescued by self-correction | **0** on local models. Remaining misses are silent wrong answers, not errors |
+When a pothole opens up on your street or the garbage truck skips your house, you call 311. Toronto publishes every one of those calls as open data. In 2024 and 2025 alone there were 937,312 of them.
 
-What this shows: context (a small semantic layer and a few retrieved examples) moved accuracy more than anything else, and that holds for frontier models too. Without context, Sonnet does no better than a local 7B model with it (76 vs. 83, p = 0.25). Every claim here comes from saved per-question outputs, with intervals and paired tests.
+That's a lot of useful information. Which wards get missed most often on garbage day? Did pothole complaints jump after the winter? How many noise complaints come in after midnight? The answers are all in there.
 
-## 1. Architecture
+But getting them out isn't easy. You need to know SQL, and you need to know the data's quirks. The city renamed many request types between 2024 and 2025. Some postal codes are just the word "Intersection". If you search for "dead animal" you'll find 493 requests, but the real number is 34,492, because most are filed under "Cadaver".
+
+So most people who could use this data never touch it. I wanted to see if a language model could close that gap, and more importantly, whether its answers could be trusted.
+
+## What it does
+
+You ask a question. Behind the scenes, the agent:
+
+1. Looks up a few similar questions it already knows the answers to.
+2. Asks a language model to write a SQL query. Along with your question, the model gets the table layout and a page of notes about the data's traps.
+3. Checks the query before running it. It has to be one read-only `SELECT`, nothing else.
+4. Runs it with a database login that can't change or delete anything.
+5. If the query fails, it shows the model the error and lets it try again, up to twice.
+6. Gives you the result table, a chart if the result suits one, and the SQL.
+
+The model never writes the answer in its own words. You get the actual rows from the database, so it can't make up a number, and you can always check how it got there.
+
+## The data
+
+The data comes from the City of Toronto's open data portal: [311 Service Requests – Customer Initiated](https://open.toronto.ca/dataset/311-service-requests-customer-initiated/), 2024 and 2025. Each row is one request.
+
+I load it into PostgreSQL as three tables and one view:
+
+| Table | Rows | What's in it |
+|---|---|---|
+| `service_requests` | 937,312 | When the request was made, its status, the first 3 characters of the postal code, the ward, the request type, and which city division handled it |
+| `request_types` | 810 | Every request type name the city used, each mapped to a simple topic |
+| `wards` | 25 | Ward number and name |
+| `v_requests` | 937,312 | A view that joins all three. This is what the agent queries |
+
+Here's one row:
+
+| created_at | status | postal_fsa | ward_name | request_type | topic | division |
+|---|---|---|---|---|---|---|
+| 2024-01-01 08:53 | Completed | M4G | Don Valley West | Road - Sinking | Potholes and road damage | Transportation Services |
+
+The `topic` column is something I added. The city used 810 different names for request types, and nobody asking about potholes would think to include "Road - Sinking". So the loader sorts every type into one of 15 topics, like Bins, Potholes, Noise or Trees, using rules that are covered by tests (`topics.py`). The biggest are bins (163k), missed collection (126k), property and bylaw (106k), and animals and wildlife (100k).
+
+A few things the data doesn't have: exact addresses, the text of the complaint, or when the request was closed. So you can't ask how long the city took to fix something.
+
+## What I wanted to find out
+
+A demo that answers five questions is easy to build. I wanted to know how often it's actually right, and what makes it better.
+
+So I wrote 100 test questions, each with a correct SQL query I checked by hand. They fall into five groups of 20: simple counts, questions about time, rankings, data traps, and multi-step questions. A question counts as right only if the agent's query returns the same result as the correct one.
+
+Then I ran three experiments:
+
+1. **Does context help?** I started a small model with just the table layout, then added the data notes, then the example questions, then the retry step, one at a time.
+2. **Does a bigger model help?** I tried three sizes of Qwen2.5-Coder, a free model that runs on a laptop CPU (1.5, 3 and 7 billion parameters).
+3. **How do paid models compare?** I ran Claude Haiku, Sonnet and Opus through Anthropic's API, using the same agent and the same 100 questions, and tracked what each run cost.
+
+## What I found
+
+| Setup | Right (of 100) | Time per question | Cost for all 100 |
+|---|---|---|---|
+| Qwen 3B, table layout only | 36 | 6 s | free |
+| Qwen 3B, with notes and examples | 73 | 7 s | free |
+| Qwen 7B, with notes and examples | 83 | 12 s | free |
+| Claude Sonnet 5.5, table layout only | 76 | 2 s | $0.20 |
+| Claude Haiku 5.5, with notes and examples | 97 | 1 s | $0.01 |
+| Claude Sonnet 5.5, with notes and examples | 98 | 2 s | $0.19 |
+| Claude Opus 5.5, with notes and examples | 99 | 2 s | $0.39 |
+
+**Context mattered most.** Adding the notes and examples doubled the small model's score, from 36 to 73. It made a big difference for Claude too: Sonnet went from 76 to 98. Without the notes, a top model did no better than a free 7B model that had them.
+
+**The retry step barely helped.** On the local models it fixed nothing. When the agent got a question wrong, the query usually ran fine and just returned the wrong number. There was no error for it to fix.
+
+**Claude was more accurate, faster and still cheap.** Haiku got 14 more questions right than the best free model, answered in about a second, and the whole test cost about a cent.
+
+**The test is now too easy for Claude.** Haiku, Sonnet and Opus scored 97, 98 and 99. With only 100 questions, that gap is too small to call one better than another. Telling them apart needs harder questions.
+
+### Why a better model matters here
+
+When this agent gets something wrong, nothing looks wrong. You get a clean table with a believable number in it. Almost every mistake in the test was like that. So the score is really telling you how often someone would walk away with a bad number and not know it.
+
+- At 83 out of 100 (the free 7B model), about 1 answer in 6 is quietly wrong. That's fine for poking around the data, but risky if the number is going into a report.
+- At 97 (Haiku), it's about 1 in 33.
+- At 99 (Opus), it's about 1 in 100.
+
+Speed matters too. Twelve seconds per question is fine when you're exploring, but it doesn't feel like a conversation. One or two seconds does.
+
+The trade-off is cost and privacy. The local model is free and your data never leaves your machine. Claude is faster and more accurate, but each question is sent to an outside service. The numbers above should make that choice easier.
+
+## How to run it
+
+You'll need Python 3.11 or newer, Docker (or your own PostgreSQL 14+), and one of these:
+
+- **[Ollama](https://ollama.com)** to run the free model on your own computer. The 7B model needs about 5 GB of free memory.
+- **An Anthropic API key** to use Claude. A run of all 100 test questions costs between 1 and 40 cents, depending on the model.
+
+**1. Get the code and install it**
+
+```bash
+git clone https://github.com/Mayank-thite/ask-toronto-311
+cd ask-toronto-311
+pip install -r requirements.txt -e .
+```
+
+**2. Start the database**
+
+```bash
+docker compose up -d
+```
+
+This starts PostgreSQL 16 on port 5432 with the user, password and database the code expects (see `.env.example`).
+
+**3. Load the data**
+
+```bash
+python -m ask311.load
+```
+
+This downloads about 13 MB from the city's portal, fixes the broken rows, and loads all 937,312 requests. It takes a few minutes.
+
+**4a. Ask a question with the free local model**
+
+```bash
+ollama pull qwen2.5-coder:7b
+python -m ask311 "How many pothole requests came in during the spring of 2025?"
+```
+
+**4b. Or ask with Claude**
+
+```bash
+export ANTHROPIC_API_KEY=your-key-here
+python -m ask311 "How many pothole requests came in during the spring of 2025?" --claude
+```
+
+This uses Haiku. To pick another model, pass its name, for example `--claude claude-sonnet-5-5`. Add `--show-attempts` to see each query the model tried.
+
+**5. Run the 100-question test yourself (optional)**
+
+```bash
+# Free model: about 23 minutes on a 4-core CPU
+python eval/run_eval.py --name my-run --model qwen2.5-coder:7b
+
+# Claude: a few minutes, stops itself before spending more than --max-usd
+python eval/run_eval.py --name my-claude-run --provider claude --model claude-haiku-5-5 --max-usd 1
+
+# Rebuild the report, charts and results page from every saved run
+python eval/report.py
+
+# Unit tests
+pytest
+```
+
+To repeat the context experiment, use `--schema bare` (table layout only), `--examples 0` (no example questions) and `--retries 0` (no retry step).
+
+---
+
+## Technical details
+
+Everything below is for readers who want to know exactly how it's built and measured.
+
+### Architecture
 
 ```mermaid
 flowchart LR
@@ -39,7 +188,7 @@ flowchart LR
     CSV["Toronto Open Data<br/>2 yearly CSVs"] --> L["Loader<br/>repair rows, cp1252,<br/>810 types to 15 topics"] --> PG[("PostgreSQL 16<br/>3 tables + 1 view")]
   end
   subgraph online["Online, per question"]
-    Q["Question"] --> R["Retriever<br/>BM25, top 3 of 24"] --> P["Prompt builder<br/>schema + notes + examples"] --> M["LLM<br/>Qwen2.5-Coder, temp 0"]
+    Q["Question"] --> R["Retriever<br/>BM25, top 3 of 24"] --> P["Prompt builder<br/>schema + notes + examples"] --> M["LLM<br/>Qwen or Claude"]
     M --> G["Guard<br/>sqlglot: 1 SELECT,<br/>known tables, row cap"] --> X["Executor<br/>role agent_ro,<br/>read-only, 15 s"] --> O["Rows + chart"]
     G -. "rejected" .-> M
     X -. "DB error / empty" .-> M
@@ -48,25 +197,25 @@ flowchart LR
   X --- PG
 ```
 
-| Module | Responsibility |
+| File | What it does |
 |---|---|
-| `load.py` | Downloads the 2024 and 2025 files, repairs rows split by unquoted commas, decodes cp1252, nulls "Intersection" postal codes, bulk-loads with `COPY` |
-| `topics.py` | Ordered regex rules mapping 810 raw request types to 15 topics. The city renamed many types between years, so this is what makes "how many potholes" answerable |
-| `schema_context.py` | Builds the schema block and the data notes. Value lists (statuses, divisions, topics, date range) are read from the database, so the notes can't drift |
-| `retrieval.py` | BM25 over 24 solved examples (`examples.yaml`). None overlap with the test set |
-| `agent.py` | The loop: prompt, extract SQL, guard, execute, feed errors back (max 2 retries) |
-| `llm.py`, `claude_llm.py` | Model adapters with one `chat()` method: any OpenAI-compatible server (local models), or Claude through the Anthropic SDK with prompt caching and a spend cap |
-| `guard.py` | sqlglot parse; exactly one SELECT/UNION; allowlisted tables and CTEs; adds `LIMIT 500` |
-| `sql/schema.sql` | Schema, the joined view, and the `agent_ro` role (SELECT grants, read-only transactions, 15 s timeout) |
-| `compare.py` | Result-set comparison used for scoring |
+| `load.py` | Downloads both years, repairs rows that unquoted commas split in two, reads the cp1252 encoding, sets "Intersection" postal codes to NULL, and bulk-loads with `COPY` |
+| `topics.py` | Ordered regex rules that map the 810 request types to 15 topics |
+| `schema_context.py` | Builds the table description and the data notes. Lists of valid values (statuses, divisions, topics, date range) come from the database, so the notes can't go stale |
+| `retrieval.py` | BM25 search over 24 solved example questions (`examples.yaml`). None of them appear in the test set |
+| `agent.py` | The main loop: build the prompt, pull out the SQL, check it, run it, and send errors back (2 retries at most) |
+| `llm.py`, `claude_llm.py` | Two model adapters with the same `chat()` method. One talks to any OpenAI-compatible server (Ollama, llama.cpp). The other uses the Anthropic SDK, with prompt caching and a spending cap |
+| `guard.py` | Parses the query with sqlglot. Allows exactly one SELECT (or UNION), only known tables, and adds `LIMIT 500` |
+| `sql/schema.sql` | Tables, the joined view, and the read-only `agent_ro` login (SELECT only, read-only transactions, 15 s timeout) |
+| `compare.py` | Compares two result sets for scoring |
 
-### The agent loop
+The loop, simplified:
 
 ```python
 examples = bm25.search(question, k=3)
 messages = [system, schema + notes + examples + question]
 for attempt in range(1 + max_retries):                 # max_retries = 2
-    sql = extract_sql(llm.chat(messages, temperature=0))
+    sql = extract_sql(llm.chat(messages))
     try:
         rows = db.run(guard.check(sql), role="agent_ro")
         if rows or already_retried_empty: return rows
@@ -76,164 +225,123 @@ for attempt in range(1 + max_retries):                 # max_retries = 2
     messages += [assistant(sql), user(feedback + " Reply with the corrected SQL only.")]
 ```
 
-The result rows are the answer. The model never writes a prose summary, so there's no second place for it to hallucinate. The chart type (single number, line or bar) is picked by rules from the result's shape.
+### Model setup
 
-## 2. How the model is used
-
-| Setting | Value | Reason |
+| Setting | Value | Why |
 |---|---|---|
-| Models | Qwen2.5-Coder Instruct 1.5B / 3B / 7B (local); Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 (API) | Open weights that fit a CPU, against hosted models at three price points |
-| Weights | GGUF Q4_K_M (4-bit) | 7B runs in about 5 GB RAM |
-| Serving | llama.cpp server or Ollama; Anthropic SDK for Claude | Two adapters behind one `chat()` method, so the agent and the evaluation never change |
-| Decoding | Local: temperature 0, max 400 tokens. Claude: effort `low` (adaptive thinking, no sampling settings) | Greedy local output for paired comparisons. Low effort keeps Claude cheap and fast on short SQL tasks |
-| Output contract | one query in a fenced `sql` block | Extracted by regex, validated by sqlglot, rejected with a reason otherwise |
-| Calls per question | 1.03 average (7B) | Retries fire only on loud failures |
+| Local models | Qwen2.5-Coder Instruct 1.5B, 3B, 7B, as 4-bit GGUF (Q4_K_M) | Trained on code, open weights, small enough for a CPU. The 7B needs about 5 GB of RAM |
+| Hosted models | Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 | Three price points from one provider |
+| Local decoding | temperature 0, max 400 tokens | The same input always gives the same output, so two runs can be compared question by question |
+| Claude settings | effort `low` | Writing one SQL query doesn't need much thinking. Low effort keeps it fast and cheap |
+| Output format | One query in a ```` ```sql ```` block | Pulled out with a regex and checked by sqlglot. Anything else is rejected with a reason |
 
-**Prompt budget** (one real question, 7B tokenizer): system 32 · tables and columns 128 · **data notes 681** · 3 examples 248 · question 19. That's about 1,100 tokens in and about 50 out.
+The prompt for one question is about 1,100 tokens: system message 32, table layout 128, data notes 681, three examples 248, the question 19.
 
-**Prompt ordering for the KV cache.** The static parts (system, schema, notes) come first and the per-question parts (examples, question) last. llama.cpp reuses the KV cache for a matching prefix. Over the 7B run it reused about 870 tokens per question and evaluated about 190 new ones, so roughly 80% of prompt processing was skipped. On a CPU, that's the dominant cost.
+The parts that never change (system message, layout, notes) come first, and the parts that change (examples, question) go last. That ordering pays off twice. Locally, llama.cpp reuses its cache for the shared start of the prompt, which skipped about 80% of the prompt work on the 7B run. With Claude, the fixed part is marked for prompt caching, so after the first question it's billed at a tenth of the normal price. About 78% of input tokens in each Claude run came from the cache.
 
-**Prompt caching on Claude.** The same ordering pays off with the API. The Claude adapter sends the schema and notes as their own content block with a cache marker, so every question after the first reads them at a tenth of the input price. Over a full run, about 78% of input tokens came from the cache. The adapter also adds up the real cost from each response's usage numbers and stops the run before it passes `--max-usd`.
+### How it's scored
 
-## 3. Evaluation method
+- **Test set** (`eval/questions.yaml`): 100 questions, 20 in each group. Every correct query is run against the real data in CI, which also checks that no `LIMIT` cuts a tie in half.
+- **What counts as right:** the agent's result must match the correct result. Column names and extra columns don't matter. Numbers must match to 2 decimal places. Row order matters only when the question asks for a sorted answer. For "which ward" style questions, only the name has to match. Each rule has a unit test.
+- **No leaks:** the 24 example questions the agent can look up are separate from the 100 test questions.
+- **Statistics:** 95% Wilson confidence intervals. To compare two runs, an exact McNemar test on the questions where they disagree (`eval/stats.py`).
+- **One correction:** after the first runs, I found the scorer was failing some right answers (month numbers instead of month names, and name-only answers). I fixed the rules and re-scored every saved run from its stored SQL (`eval/rescore.py`). No model was re-run. Scores rose 2 to 8 points, and the ranking didn't change.
+- **Hardware for local runs:** 4 vCPU, 15 GB RAM, no GPU.
 
-- **Test set** (`eval/questions.yaml`). 100 questions, 20 in each of 5 categories: simple filters, time logic, rankings, data traps (renamed types, a division reorganisation, NULL semantics, what "open" means) and multi-step queries (ratios, windows, HAVING, set operations). Each has gold SQL. A CI test runs every gold query against the real data, checks it returns rows, and checks that no `LIMIT` boundary cuts through a tie.
-- **Metric.** Execution accuracy. The predicted result set must match the gold result set. Column names and extra columns are ignored. Numbers match to 2 decimals. Order counts only when the gold query sorts (with an explicit tie column where needed). For "which X" questions, only the label column must match. Month numbers are accepted for month dates inside a single year. Each rule has a unit test.
-- **Leakage control.** The retrievable examples are a separate, disjoint set.
-- **Ablation.** One component is added per run on the 3B model. Greedy decoding makes every pair of runs a paired comparison.
-- **Statistics.** 95% Wilson intervals. Exact McNemar tests on the questions where two runs disagree (`eval/stats.py`).
-- **Scoring change.** After the first runs, the label-only and month-number rules were added because correct answers were being failed. Every saved run was then re-scored from its stored SQL (`eval/rescore.py`) without re-running any model. Scores rose 2 to 8 points, and the order of setups didn't change.
-- **Environment.** 4 vCPU, 15 GB RAM, no GPU, llama-cpp-python 0.3.36.
+### Full results
 
-## 4. Results
+**Adding context, one piece at a time (Qwen 3B)**
 
-### Ablation (Qwen2.5-Coder 3B)
-
-| Setup | Correct | 95% CI | vs row above (newly right / newly wrong) |
+| Setup | Right | 95% CI | Compared with the row above |
 |---|---|---|---|
-| Tables and columns only | 36 | 27 to 46 | |
-| + data notes | 55 | 45 to 64 | +24 / −5, p < 0.001 |
-| + 3 retrieved examples | 73 | 64 to 81 | +22 / −4, p < 0.001 |
-| + self-correction (2 retries) | 73 | 64 to 81 | +0 / −0, p = 1.00 |
-| + "don't copy filters" instruction | 71 | 62 to 79 | +0 / −2, p = 0.50 |
+| Table layout only | 36 | 27 to 46 | |
+| + data notes | 55 | 45 to 64 | 24 newly right, 5 newly wrong, p < 0.001 |
+| + 3 example questions | 73 | 64 to 81 | 22 newly right, 4 newly wrong, p < 0.001 |
+| + retry step | 73 | 64 to 81 | no change |
+| + "don't copy the example's filters" instruction | 71 | 62 to 79 | 2 newly wrong, p = 0.50 |
 
-- **Notes** fixed lookups against values the model couldn't see. Rankings went from 35 to 85 and data traps from 30 to 55.
-- **Examples** taught patterns (FILTER, window functions, HAVING). Multi-step went from 5 to 40.
-- **Self-correction** had nothing to work on. With context, only 3 of 100 queries failed loudly, and none were fixed in 2 retries. The other 24 misses executed cleanly and returned wrong numbers.
-- **The "don't copy" instruction** targeted a real failure mode (below) and didn't help. It's off by default and kept in the record.
+The notes mostly helped with values the model couldn't otherwise know, like topic names. Rankings went from 35% to 85%. The examples taught patterns like window functions and HAVING, and multi-step questions went from 5% to 40%. The extra instruction was meant to fix a real problem (below), but it didn't help, so it's off by default.
 
-### Model size (full agent)
+**Model size (Qwen, full agent)**
 
-| Model | Correct | 95% CI | Median | p90 | vs smaller |
+| Model | Right | 95% CI | Median time | 90th percentile | Compared with the smaller model |
 |---|---|---|---|---|---|
 | Qwen2.5-Coder 1.5B | 64 | 54 to 73 | 5.2 s | 8.7 s | |
 | Qwen2.5-Coder 3B | 73 | 64 to 81 | 6.9 s | 11.8 s | +14 / −5, p = 0.06 |
-| Qwen2.5-Coder 7B | **83** | 74 to 89 | 12.3 s | 20.1 s | +16 / −6, p = 0.05 |
+| Qwen2.5-Coder 7B | 83 | 74 to 89 | 12.3 s | 20.1 s | +16 / −6, p = 0.05 |
 
-Bigger is better, but neither step clears p < 0.05 on 100 questions. The context effect is the stronger result. 3B to 7B costs about 1.8 times the latency for 10 points. Per-category numbers are in [eval/REPORT.md](eval/REPORT.md).
+Bigger helped, but with 100 questions neither step is clearly significant. The effect of context is much stronger.
 
-### Hosted models: Claude (full agent, effort low)
+**Claude (full agent, effort low)**
 
-| Model | Correct | 95% CI | Median | Run cost (100 Qs) | Per correct answer | vs Qwen 7B |
-|---|---|---|---|---|---|---|
-| Claude Haiku 5.5 | **97** | 92 to 99 | 1.0 s | $0.012 | $0.0001 | +15 / −1, p < 0.001 |
-| Claude Sonnet 5.5 | **98** | 93 to 99 | 1.7 s | $0.19 | $0.002 | +15 / −0, p < 0.001 |
-| Claude Opus 5.5 | **99** | 95 to 100 | 2.1 s | $0.39 | $0.004 | +16 / −0, p < 0.001 |
-| Claude Sonnet 5.5, tables only | 76 | 67 to 83 | 1.9 s | $0.20 | $0.003 | +10 / −17, p = 0.25 |
+| Model | Right | 95% CI | Median time | Cost for 100 | Compared with Qwen 7B |
+|---|---|---|---|---|---|
+| Claude Haiku 5.5 | 97 | 92 to 99 | 1.0 s | $0.012 | +15 / −1, p < 0.001 |
+| Claude Sonnet 5.5 | 98 | 93 to 99 | 1.7 s | $0.19 | +15 / −0, p < 0.001 |
+| Claude Opus 5.5 | 99 | 95 to 100 | 2.1 s | $0.39 | +16 / −0, p < 0.001 |
+| Claude Sonnet 5.5, table layout only | 76 | 67 to 83 | 1.9 s | $0.20 | +10 / −17, p = 0.25 |
 
-- **Hosted beats local clearly.** Haiku gets 14 more right than the 7B, about 12 times faster, for about a cent for all 100 questions.
-- **The set is saturated for hosted models.** 97, 98 and 99 overlap. No pair differs significantly (Haiku vs. Opus: +2 / −0, p = 0.50). Ranking them needs harder questions.
-- **Context isn't only for small models.** Sonnet with tables only scores 76, no better than the 7B with context (83, p = 0.25). Adding notes and examples back is +23 / −1 (p < 0.001). All 24 of its misses are silent wrong results, with no invalid SQL.
-- **What's left is data traps.** The 6 misses across the three full runs fall on 3 questions. All three models count "dead animal" requests by keyword and get 493. The city files most of them under "cadaver", and the true count is 34,492. That's a gap in the notes, not in the model.
-- API latency includes the network and isn't comparable to the local CPU numbers.
+Claude's times include the network round trip, so they aren't a fair speed comparison with the local CPU. None of the three Claude models is significantly better than another (Haiku vs Opus: p = 0.50). The table-layout-only run made no invalid queries at all. All 24 of its misses ran fine and returned the wrong number. The 6 misses across the three full Claude runs land on just 3 questions, and all three models missed the "dead animal" one.
 
-## 5. Error analysis (7B, all 17 misses hand-labelled)
+### Where the 7B model went wrong
 
-| Cause | Misses | Example |
+I read all 17 of its wrong answers and gave each one main cause:
+
+| Cause | Count | Example |
 |---|---|---|
-| Concept mapping | 4 | searched `request_type` for "missed collection" instead of using `topic` |
-| Copied example filter | 3 | added `year = 2025` because a retrieved example had it |
-| Aggregation logic | 3 | filtered to Noise in `WHERE`, so every ward's noise share became 100% |
-| Output shape | 3 | answered "how many days..." with one row per day |
-| Wrapping time range | 2 | "11 pm to 5 am" written as `BETWEEN 23 AND 5` |
-| Decomposition | 2 | ranked topics by volume instead of by year-over-year change |
+| Wrong concept | 4 | Searched request names for "missed collection" instead of using the topic |
+| Copied a filter from an example | 3 | Added `year = 2025` because the example question had it |
+| Wrong aggregation | 3 | Filtered to noise first, so every ward's share of noise came out as 100% |
+| Wrong shape of answer | 3 | Asked "how many days...", returned one row per day |
+| Time range across midnight | 2 | Wrote "11 pm to 5 am" as `BETWEEN 23 AND 5` |
+| Broke the question down wrong | 2 | Ranked topics by total volume instead of by change from last year |
 
-All six causes are silent: the query runs and returns something plausible. The 7B model still makes every one of them, so scale alone isn't closing them. Per-question labels are in [`eval/error_labels.yaml`](eval/error_labels.yaml).
+Every one of these runs without an error, which is why the retry step can't catch them. The labels for each question are in [`eval/error_labels.yaml`](eval/error_labels.yaml).
 
-## 6. Design decisions
+### Design choices
 
-| Decision | Alternative | Why |
+| I chose | Instead of | Because |
 |---|---|---|
-| Topic layer in the database (tested regex rules) | Let the model search 810 type names | Types were renamed mid-period. A deterministic mapping is cheaper and testable |
-| One joined view | Base tables only | Fewer joins to get wrong. Base tables are still available |
-| BM25 retrieval | Embeddings + vector store | 24 short examples don't need a second model. Retrieval sits behind one class |
-| Parser allowlist **and** read-only DB role | Prompt instructions | A prompt isn't a security boundary. A test proves `DELETE` fails at the database |
-| Greedy decoding | Sampling | Reproducibility and paired statistics. Sampling is reserved for voting |
-| Rows as the answer | LLM-written summary | One fewer hallucination surface, half the calls |
-| Two thin adapters (OpenAI-compatible, Anthropic SDK) | One generic client | Each uses its provider's own features (llama.cpp prefix reuse, Claude prompt caching and effort) while the agent stays unchanged |
-| Spend cap inside the adapter | Watching the bill | A run can't overspend. Results are saved per question, so a stopped run resumes |
+| A topic column built from tested rules | Letting the model search 810 type names | Types were renamed between years. Fixed rules are cheaper and can be tested |
+| One joined view | Only the raw tables | Fewer joins for the model to get wrong. The raw tables are still there |
+| BM25 keyword search for examples | Embeddings and a vector database | 24 short examples don't need a second model |
+| A query checker **and** a read-only login | Telling the model not to write anything | A prompt isn't security. A test confirms that `DELETE` fails at the database |
+| Rows as the answer | Having the model write a summary | One less place for it to make things up, and half the API calls |
+| Two small model adapters | One generic client | Each one can use its provider's own features, like llama.cpp's cache or Claude's prompt caching, while the agent stays the same |
+| A spending cap inside the Claude adapter | Keeping an eye on the bill | A run can't overspend. Results are saved after every question, so a stopped run picks up where it left off |
 
-## 7. Limitations and next steps
+### Limitations
 
-- **100 questions** gives about ±9 point intervals. Differences under about 10 points aren't reliable.
-- **One author** wrote the questions, gold SQL, notes and examples, so the notes likely fit the test set better than they'd fit outside questions.
-- **No confidence signal.** The agent can't tell a silent wrong answer from a right one, and that's where the remaining error is.
-- **Single-turn.** It doesn't ask clarifying questions.
-- **Ceiling effect.** Hosted models score 97 to 99, so this set ranks local models but can't separate hosted ones.
+- 100 questions gives confidence intervals of about ±9 points, so smaller differences between setups aren't reliable.
+- I wrote the questions, the correct answers, the notes and the examples myself. The notes probably fit my questions better than they'd fit someone else's.
+- The agent can't tell when it's wrong. That's where most of the remaining errors are.
+- It answers one question at a time and doesn't ask follow-up questions when something is ambiguous.
+- Claude scores 97 to 99, so this test can rank the local models but not the Claude ones.
 
-Next steps, by expected gain per hour:
+### What I'd do next
 
-1. **Result-shape check.** A "how many" question that returns more than one row gets sent back. Targets 3 misses.
-2. **Two notes.** One on wrapping time ranges and one on preferring `topic` over keyword search. Targets 6 misses.
-3. **Self-consistency.** Sample 5 queries, execute all of them, and keep the majority result. This is the standard defence against silent errors, at about 5 times the compute.
-4. **A harder, 300-question test set**, partly written by someone else, with ambiguous phrasing and multi-table questions. It would also separate the hosted models.
+1. Send back any "how many" answer that has more than one row. That would catch 3 of the 7B's misses.
+2. Add two notes: one on time ranges that cross midnight, and one telling the model to use the topic column instead of keyword search. That targets 6 more.
+3. Ask for 5 queries, run them all, and keep the most common answer. It's the usual fix for errors that don't throw, at about 5 times the cost.
+4. Write a harder set of 300 questions, some by other people, with vaguer wording. That would also separate the Claude models.
 
-## 8. Data problems found while loading
+### Problems I found in the raw data
 
-- 70,408 rows have 10 fields instead of 9. Division names like "Parks, Forestry & Recreation" contain unquoted commas. They're rejoined using the known division names, and one section name gets the same fix.
-- The files are Windows-1252, not UTF-8.
-- 141,355 requests have the literal "Intersection" in the postal code column. These are stored as NULL, and the street names live in two other columns.
+- 70,408 rows had 10 fields instead of 9. Division names like "Parks, Forestry & Recreation" contain commas that aren't quoted. The loader rejoins them using the known division names.
+- The files are encoded in Windows-1252, not UTF-8.
+- 141,355 requests have the word "Intersection" in the postal code column. These are stored as NULL. The street names are in two other columns.
 - Forestry moved from Parks (2024) to Environment, Climate & Forestry (2025).
 
-## Run it
-
-Requirements: Python 3.11+, Docker (or PostgreSQL 14+), and Ollama or an Anthropic API key.
-
-```bash
-git clone https://github.com/Mayank-thite/ask-toronto-311 && cd ask-toronto-311
-pip install -r requirements.txt
-docker compose up -d
-PYTHONPATH=src python -m ask311.load          # about 13 MB download, 937k rows
-ollama pull qwen2.5-coder:7b
-PYTHONPATH=src python -m ask311 "How many pothole requests came in during the spring of 2025?" --show-attempts
-```
-
-Evaluate and rebuild the report:
-
-```bash
-python eval/run_eval.py --name my-run --model qwen2.5-coder:7b    # about 23 min on 4 CPU cores
-python eval/report.py                                            # REPORT.md, charts, docs/index.html
-pytest                                                           # unit tests; CI also loads the real data
-```
-
-Claude instead of a local model (needs `ANTHROPIC_API_KEY`):
-
-```bash
-python eval/run_eval.py --name claude-haiku-full --provider claude --model claude-haiku-5-5 --max-usd 1
-```
-
-Flags `--schema bare|notes`, `--examples N`, `--retries N` and `--example-guard` reproduce each ablation row.
-
-## Layout
+## Project layout
 
 ```
-src/ask311/   agent, guard, retrieval, schema notes, topics, loader, charts, CLI
-sql/          schema, joined view, read-only role
-eval/         questions, runner, re-scorer, stats, error labels, report, saved results
+src/ask311/   agent, query checker, example search, data notes, topics, loader, charts, CLI
+sql/          tables, joined view, read-only login
+eval/         test questions, test runner, re-scorer, statistics, error labels, report, saved results
 docs/         results page (GitHub Pages)
-tests/        guardrails, scoring rules, statistics, topics, gold SQL, read-only role
+tests/        query checker, scoring rules, statistics, topics, correct answers, read-only login
 ```
 
 ## Data and licences
 
-City of Toronto Open Data, [311 Service Requests – Customer Initiated](https://open.toronto.ca/dataset/311-service-requests-customer-initiated/), Open Government Licence – Toronto. Qwen2.5-Coder 1.5B and 7B are Apache 2.0. The 3B model has the Qwen Research licence (used here for non-commercial evaluation only). Code: MIT.
+Data: City of Toronto Open Data, [311 Service Requests – Customer Initiated](https://open.toronto.ca/dataset/311-service-requests-customer-initiated/), under the Open Government Licence – Toronto. Qwen2.5-Coder 1.5B and 7B are Apache 2.0. The 3B model uses the Qwen Research licence, and was used here only for non-commercial testing. Code: MIT.

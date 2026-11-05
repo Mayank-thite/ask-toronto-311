@@ -11,9 +11,16 @@ def main():
     p.add_argument("question")
     p.add_argument("--chart", default="answer.png", help="where to save a chart, if one fits")
     p.add_argument("--show-attempts", action="store_true")
+    p.add_argument("--claude", metavar="MODEL", nargs="?", const="claude-haiku-5-5", default=None,
+                   help="use Claude through the Anthropic API instead of a local model "
+                        "(needs ANTHROPIC_API_KEY; default model claude-haiku-5-5)")
     a = p.parse_args()
 
-    ans = Agent(config=AgentConfig()).ask(a.question)
+    llm = None
+    if a.claude:
+        from .claude_llm import ClaudeLLM
+        llm = ClaudeLLM(model=a.claude)
+    ans = Agent(llm=llm, config=AgentConfig()).ask(a.question)
     if a.show_attempts:
         for i, s in enumerate(ans.attempts, 1):
             outcome = s["error"] or f"{s['row_count']} rows"
