@@ -60,11 +60,20 @@ def main():
     p.add_argument("--example-guard", action="store_true",
                    help="add the don't-copy-filters line (added after the first round of results)")
     p.add_argument("--only", default=None, help="comma-separated question ids")
+    p.add_argument("--provider", default="openai", choices=["openai", "claude"],
+                   help="openai = any OpenAI-compatible endpoint (local models); claude = Anthropic SDK")
+    p.add_argument("--effort", default="low", help="Claude effort level (low | medium | high)")
+    p.add_argument("--max-usd", type=float, default=None, help="stop a Claude run before it spends more")
     a = p.parse_args()
 
     cfg = AgentConfig(schema_level=a.schema, k_examples=a.examples, max_retries=a.retries,
                       retry_on_empty=a.retries > 0, example_guard=a.example_guard)
-    agent = Agent(LLM(base_url=a.base_url, model=a.model), cfg)
+    if a.provider == "claude":
+        from ask311.claude_llm import ClaudeLLM
+        llm = ClaudeLLM(model=a.model or "claude-sonnet-5-5", effort=a.effort, max_usd=a.max_usd)
+    else:
+        llm = LLM(base_url=a.base_url, model=a.model)
+    agent = Agent(llm, cfg)
     questions = yaml.safe_load(open(ROOT / "eval" / "questions.yaml"))
     if a.only:
         keep = set(a.only.split(","))
@@ -84,6 +93,7 @@ def main():
                 records.append(done[q["id"]])
                 continue
             _, gold_rows = run_query(q["sql"])
+            spent_before = getattr(agent.llm, "spent", 0.0)
             ans = agent.ask(q["question"])
             correct = ans.ok and results_match(gold_rows, ans.rows, is_ordered(q["sql"], len(gold_rows)), q.get("answer_cols"), q.get("order_col"))
             rec = {
@@ -95,6 +105,8 @@ def main():
                 "examples_used": ans.examples_used, "seconds": round(ans.seconds, 2),
                 "prompt_tokens": ans.prompt_tokens, "completion_tokens": ans.completion_tokens,
             }
+            if hasattr(agent.llm, "spent"):
+                rec["cost_usd"] = round(agent.llm.spent - spent_before, 5)
             f.write(json.dumps(rec, default=str) + "\n")
             f.flush()
             records.append(rec)
@@ -103,6 +115,12 @@ def main():
     summary = summarize(records, {"name": a.name, "model": agent.llm.model, "schema": a.schema,
                                   "examples": a.examples, "retries": a.retries,
                                   "example_guard": a.example_guard and a.examples > 0})
+    if hasattr(agent.llm, "spent"):
+        summary["provider"] = "claude"
+        summary["effort"] = a.effort
+        summary["cost_usd"] = round(sum(r.get("cost_usd", 0) for r in records), 4)
+        summary["cost_per_correct_usd"] = round(summary["cost_usd"] / max(1, sum(r["correct"] for r in records)), 5)
+        summary["token_totals_this_session"] = agent.llm.totals
     (ROOT / "eval" / "results" / f"{a.name}.summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
