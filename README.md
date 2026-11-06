@@ -12,6 +12,8 @@ Get back the answer, pulled straight from the city's data, along with the SQL qu
 ![Ollama](https://img.shields.io/badge/Ollama-local-000000?logo=ollama&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-F7DF1E)
 
+[![Results page](https://img.shields.io/badge/Results_page-open-0F172A?logo=githubpages&logoColor=white)](https://mayank-thite.github.io/ask-toronto-311/)
+
 ![Qwen 7B](https://img.shields.io/badge/Qwen_7B_(free,_local)-83%25_right-F59E0B)
 ![Haiku](https://img.shields.io/badge/Claude_Haiku_5.5-97%25_right-16A34A)
 ![Sonnet](https://img.shields.io/badge/Claude_Sonnet_5.5-98%25_right-16A34A)
